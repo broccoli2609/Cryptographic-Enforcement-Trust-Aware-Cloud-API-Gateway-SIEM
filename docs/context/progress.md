@@ -32,7 +32,6 @@ Cập nhật lần cuối: 2026-10-07
 ## Vướng mắc / câu hỏi mở
 
 - Docker Desktop 4.87 vẫn cài trên Windows (đang tắt). Đừng bật WSL integration cho Ubuntu — sẽ có hai lệnh `docker` trỏ hai daemon. Có thể gỡ nếu không dùng.
-- Git trong WSL chưa đặt `user.name` / `user.email` — cần trước commit đầu tiên.
 - Doc checklist "Dựng môi trường lab — Tuần 2 (T6)" không có trong repo, chỉ được nhắc tên.
 - WSL chưa có `claude` CLI; `cach-mo-phien.md` hướng dẫn chạy `claude` trong Ubuntu, hiện đang dùng desktop app trên Windows (skill `/topic09` ở `C:\Users\games\.claude\skills\topic09`).
 - `create-github-issues.sh` (thư mục D:) cần `tasks-github.csv` — chưa thấy file này.
@@ -43,3 +42,4 @@ Cập nhật lần cuối: 2026-10-07
 - 2026-10-07 — tạo context pack cho Claude Code (CLAUDE.md, .claude/rules, docs/context).
 - 2026-10-07 — đưa repo vào `~/topic09-lab`, giải nén context pack, tạo `.env`; giữ Docker Engine theo quyết định 06/10 — người dùng cài Docker/Go/linux-tools.
 - 2026-10-07 — Tuần 2 T6 làm bù: `check-env` exit 0, perf đếm được `cycles:u`, `make test` 5/5, smoke test 9/9 PASS, soát bảo mật đạt — xong tuần 2.
+- 2026-10-07 — đặt git identity + `gh auth login` trong WSL; push, PR #1 squash-merge vào `main` (`1a4ea5f`) — repo GitHub đang PUBLIC.
