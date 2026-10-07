@@ -1,0 +1,20 @@
+# perf check — 2026-10-07T16:33:15+00:00
+kernel:     6.18.40.1-microsoft-standard-WSL2
+cpu:        Intel(R) Core(TM) i7-7500U CPU @ 2.70GHz
+perf:       /usr/lib/linux-tools-6.8.0-146/perf (perf version 6.8.12)
+paranoid:   2
+
+$ perf stat -e cycles,instructions,task-clock -- ls
+
+ Performance counter stats for 'ls':
+
+            795145      cycles:u                         #    0.546 GHz                       
+            579106      instructions:u                   #    0.73  insn per cycle            
+              1.46 msec task-clock:u                     #    0.736 CPUs utilized             
+
+       0.001980838 seconds time elapsed
+
+       0.002317000 seconds user
+       0.000000000 seconds sys
+
+

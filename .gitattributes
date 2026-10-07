@@ -1,0 +1,3 @@
+# Giữ LF cho mọi file văn bản để script chạy được trong WSL
+* text=auto eol=lf
+*.png binary

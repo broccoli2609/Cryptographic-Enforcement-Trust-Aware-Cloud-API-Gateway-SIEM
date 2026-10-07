@@ -1,0 +1,80 @@
+# Lab Topic 09 — tuần 2: Keycloak + 2 backend rỗng. Chưa có Envoy (tuần 4).
+# Chạy:  cp .env.example .env  (rồi đổi mật khẩu)  →  docker compose up -d --build
+name: topic09-lab
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.0      # ghim phiên bản, không dùng :latest
+    command: ["start-dev"]                       # chế độ dev: HTTP, DB nội bộ — chỉ dùng cho lab
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?Hay dat KC_ADMIN_PASSWORD trong file .env}
+      KC_HEALTH_ENABLED: "true"                  # bật /health/ready trên cổng quản trị 9000
+      KC_HOSTNAME: http://localhost:8080         # issuer (iss) trong token luôn là địa chỉ này
+    ports:
+      - "127.0.0.1:8080:8080"                    # chỉ mở trên localhost, không ra mạng LAN
+    volumes:
+      - keycloak-data:/opt/keycloak/data         # giữ realm, user qua các lần restart
+    networks: [identity]
+    healthcheck:
+      # Image Keycloak không có curl, nên dùng /dev/tcp của bash để gọi health endpoint.
+      test:
+        - CMD
+        - bash
+        - -c
+        - >-
+          exec 3<>/dev/tcp/127.0.0.1/9000 &&
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3 &&
+          grep -q '200 OK' <&3
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  orders-api:
+    build:
+      context: ./workloads
+      args:
+        SERVICE: orders-api
+    image: topic09/orders-api:dev
+    environment:
+      LISTEN_ADDR: ":8081"
+    networks: [backend]                          # KHÔNG có "ports": host không gọi thẳng được
+    read_only: true                              # file hệ thống chỉ đọc
+    cap_drop: [ALL]                              # bỏ mọi Linux capability
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/app", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  profile-api:
+    build:
+      context: ./workloads
+      args:
+        SERVICE: profile-api
+    image: topic09/profile-api:dev
+    environment:
+      LISTEN_ADDR: ":8082"
+    networks: [backend]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/app", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+networks:
+  identity:
+    name: topic09-identity
+  backend:
+    name: topic09-backend
+    internal: true                               # mạng kín: không ra Internet, không publish port
+
+volumes:
+  keycloak-data:
