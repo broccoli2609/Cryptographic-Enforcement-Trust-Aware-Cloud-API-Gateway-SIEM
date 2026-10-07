@@ -1,0 +1,13 @@
+# Bí mật — không bao giờ commit (tài sản #4, #10, #11, #14 trong bảng tài sản tuần 1)
+.env
+*.pem
+*.key
+*.p12
+secrets/
+
+# File tạm của Go và editor
+workloads/bin/
+*.test
+*.out
+.vscode/
+.idea/
