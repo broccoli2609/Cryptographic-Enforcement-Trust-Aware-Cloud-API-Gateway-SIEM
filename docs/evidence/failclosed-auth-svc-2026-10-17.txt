@@ -1,0 +1,15 @@
+# Fail-closed khi auth-svc sập (SR-11) — 2026-10-17T02:31:21+00:00
+# Token: alice <access_token: 1177 ký tự, sha256=0abe894302f3…> — token HỢP LỆ trong suốt bài test
+
+1. Bình thường
+  [PASS] P1 :8443 → 200
+
+2. docker compose stop auth-svc
+  [PASS] P1 :8443 → 403 — chặn khi không hỏi được auth-svc
+   Envoy ghi lý do: 403 ext_authz_error
+  [PASS] P0 :8444 → 200 — P0 không phụ thuộc auth-svc (để so sánh)
+
+3. docker compose start auth-svc (đợi healthy, tối đa 60 s)
+  [PASS] P1 :8443 → 200 — hoạt động lại sau khi auth-svc lên
+
+Kết quả: 4/4 PASS

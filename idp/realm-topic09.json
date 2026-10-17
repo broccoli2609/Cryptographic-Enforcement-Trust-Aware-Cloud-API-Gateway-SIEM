@@ -1,0 +1,217 @@
+{
+  "realm": "topic09",
+  "displayName": "Topic 09 Lab",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "registrationEmailAsUsername": false,
+  "loginWithEmailAllowed": false,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "editUsernameAllowed": false,
+  "rememberMe": false,
+  "verifyEmail": false,
+  "passwordPolicy": "length(12) and notUsername",
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "minimumQuickLoginWaitSeconds": 60,
+  "quickLoginCheckMilliSeconds": 1000,
+  "maxDeltaTimeSeconds": 43200,
+  "defaultSignatureAlgorithm": "RS256",
+  "accessTokenLifespan": 300,
+  "accessCodeLifespan": 60,
+  "accessCodeLifespanUserAction": 300,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "eventsEnabled": true,
+  "eventsExpiration": 604800,
+  "eventsListeners": ["jboss-logging"],
+  "adminEventsEnabled": true,
+  "adminEventsDetailsEnabled": false,
+  "roles": {
+    "realm": [
+      { "name": "employee", "description": "Employee: own orders, own profile" },
+      { "name": "manager", "description": "Manager: orders of own department" },
+      { "name": "hr", "description": "HR: employee profiles incl. salary_band" },
+      { "name": "batch", "description": "Service account of batch-worker" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "web-app",
+      "name": "Web app (public client, Auth Code + PKCE)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "consentRequired": false,
+      "fullScopeAllowed": false,
+      "frontchannelLogout": true,
+      "redirectUris": ["http://localhost:3000/callback"],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3000/",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false",
+        "use.refresh.tokens": "true"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-topic09-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "topic09-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "dept",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "dept",
+            "claim.name": "dept",
+            "jsonType.label": "String",
+            "multivalued": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        },
+        {
+          "name": "tier",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "tier",
+            "claim.name": "tier",
+            "jsonType.label": "String",
+            "multivalued": "false",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "batch-worker",
+      "name": "Batch worker (Client Credentials + private_key_jwt)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-jwt",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": true,
+      "consentRequired": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [],
+      "webOrigins": [],
+      "attributes": {
+        "token.endpoint.auth.signing.alg": "ES256",
+        "use.jwks.url": "false",
+        "client_credentials.use_refresh_token": "false",
+        "oauth2.device.authorization.grant.enabled": "false",
+        "oidc.ciba.grant.enabled": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "audience-topic09-api",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.custom.audience": "topic09-api",
+            "access.token.claim": "true",
+            "id.token.claim": "false",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "scopeMappings": [
+    { "client": "web-app", "roles": ["employee", "manager", "hr"] },
+    { "client": "batch-worker", "roles": ["batch"] }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Alice",
+      "lastName": "Nguyen",
+      "email": "alice@example.com",
+      "attributes": { "dept": ["sales"], "tier": ["standard"] },
+      "realmRoles": ["employee"],
+      "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Bob",
+      "lastName": "Tran",
+      "email": "bob@example.com",
+      "attributes": { "dept": ["engineering"], "tier": ["premium"] },
+      "realmRoles": ["employee"],
+      "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "carol",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Carol",
+      "lastName": "Le",
+      "email": "carol@example.com",
+      "attributes": { "dept": ["hr"], "tier": ["standard"] },
+      "realmRoles": ["employee", "hr"],
+      "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "dave",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "Dave",
+      "lastName": "Pham",
+      "email": "dave@example.com",
+      "attributes": { "dept": ["sales"], "tier": ["premium"] },
+      "realmRoles": ["employee", "manager"],
+      "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
+    },
+    {
+      "username": "service-account-batch-worker",
+      "enabled": true,
+      "serviceAccountClientId": "batch-worker",
+      "realmRoles": ["batch"]
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "subComponents": {},
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"Username\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"email\",\"displayName\":\"Email\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"firstName\",\"displayName\":\"First name\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"lastName\",\"displayName\":\"Last name\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]},\"multivalued\":false},{\"name\":\"dept\",\"displayName\":\"Department\",\"validations\":{\"options\":{\"options\":[\"sales\",\"engineering\",\"hr\"]}},\"annotations\":{\"inputType\":\"select\"},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]},\"multivalued\":false},{\"name\":\"tier\",\"displayName\":\"Tier\",\"validations\":{\"options\":{\"options\":[\"standard\",\"premium\"]}},\"annotations\":{\"inputType\":\"select\"},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\"]},\"multivalued\":false}],\"groups\":[{\"name\":\"user-metadata\",\"displayHeader\":\"User metadata\",\"displayDescription\":\"Attributes, which refer to user metadata\"}]}"
+          ]
+        }
+      }
+    ]
+  }
+}

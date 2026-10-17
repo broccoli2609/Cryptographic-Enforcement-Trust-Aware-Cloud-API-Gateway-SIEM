@@ -1,0 +1,25 @@
+# PKCE — các ca sai phải bị từ chối — 2026-10-17T02:07:10+00:00
+# Client web-app (public, pkce.code.challenge.method=S256), user alice
+
+1. Thiếu code_challenge (PKCE downgrade, RFC 9700 §4.8)
+  [PASS] không cấp code — error=invalid_request (Missing parameter: code_challenge_method)
+
+2. code_challenge_method=plain (challenge = verifier, mất tính một chiều)
+  [PASS] không cấp code — error=invalid_request (Invalid parameter: code challenge method is not matching the configured one)
+
+3. redirect_uri lạ (http://localhost:3000/callback/../evil) — so khớp chính xác (RFC 9700 §2.1)
+  [PASS] HTTP 400, không hiện form đăng nhập, không redirect — "Invalid parameter: redirect_uri"
+
+4. Có code hợp lệ nhưng code_verifier SAI (kẻ tấn công chặn được code, RFC 9700 §4.5)
+  [PASS] HTTP 400 — error=invalid_grant (PKCE verification failed: Code mismatch)
+
+5. Có code hợp lệ nhưng KHÔNG gửi code_verifier
+  [PASS] HTTP 400 — error=invalid_grant (PKCE code verifier not specified)
+
+6. Token request với redirect_uri khác lúc authorize
+  [PASS] HTTP 400 — error=invalid_grant (Incorrect redirect_uri)
+
+7. Dùng lại code đã đổi thành công (code chỉ dùng một lần)
+  [PASS] lần 1 HTTP 200, lần 2 HTTP 400 — error=invalid_grant (Code not valid)
+
+Kết quả: 7/7 PASS

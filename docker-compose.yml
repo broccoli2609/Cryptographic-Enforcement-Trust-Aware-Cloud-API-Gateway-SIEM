@@ -1,20 +1,26 @@
-# Lab Topic 09 — tuần 2: Keycloak + 2 backend rỗng. Chưa có Envoy (tuần 4).
+# Lab Topic 09 — tuần 4: Keycloak (realm topic09) + Envoy (TLS 1.3, P1 :8443 / P0 :8444) + auth-svc + 2 backend.
 # Chạy:  cp .env.example .env  (rồi đổi mật khẩu)  →  docker compose up -d --build
 name: topic09-lab
 
 services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.8.0      # ghim phiên bản, không dùng :latest
-    command: ["start-dev"]                       # chế độ dev: HTTP, DB nội bộ — chỉ dùng cho lab
+    # --import-realm: lúc khởi động, import mọi file .json trong /opt/keycloak/data/import.
+    # Realm đã tồn tại thì bỏ qua (không ghi đè) — muốn import lại phải xoá realm topic09 trước.
+    command: ["start-dev", "--import-realm"]     # chế độ dev: HTTP, DB nội bộ — chỉ dùng cho lab
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USER:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:?Hay dat KC_ADMIN_PASSWORD trong file .env}
       KC_HEALTH_ENABLED: "true"                  # bật /health/ready trên cổng quản trị 9000
       KC_HOSTNAME: http://localhost:8080         # issuer (iss) trong token luôn là địa chỉ này
+      # Keycloak thay chỗ ${LAB_USER_PASSWORD} trong idp/realm-topic09.json bằng biến này,
+      # nhờ vậy file realm commit được mà không chứa mật khẩu.
+      LAB_USER_PASSWORD: ${LAB_USER_PASSWORD:?Hay dat LAB_USER_PASSWORD trong file .env}
     ports:
       - "127.0.0.1:8080:8080"                    # chỉ mở trên localhost, không ra mạng LAN
     volumes:
       - keycloak-data:/opt/keycloak/data         # giữ realm, user qua các lần restart
+      - ./idp:/opt/keycloak/data/import:ro       # realm-as-code (tuần 3), chỉ đọc
     networks: [identity]
     healthcheck:
       # Image Keycloak không có curl, nên dùng /dev/tcp của bash để gọi health endpoint.
@@ -69,9 +75,83 @@ services:
       retries: 3
       start_period: 5s
 
+  # Gateway (PEP) — tuần 4. Image distroless: không shell, chạy uid 65532 (không phải root).
+  # Không có healthcheck vì image không có công cụ nào để gọi; smoke test kiểm từ host qua TLS.
+  # auth-svc (Go, gRPC ext_authz) — tuần 4 T6: kiểm JWT chặt cho profile P1.
+  auth-svc:
+    build:
+      context: ./gateway/auth-svc
+    image: topic09/auth-svc:dev
+    environment:
+      LISTEN_ADDR: ":9191"
+      # Bốn giá trị bảo mật ghi cứng ở đây, không lấy từ token (SR-02):
+      OIDC_ISSUER: http://localhost:8080/realms/topic09
+      JWKS_URL: http://keycloak:8080/realms/topic09/protocol/openid-connect/certs
+      AUDIENCE: topic09-api
+      ALLOWED_ALGS: RS256                        # realm topic09 chỉ ký RS256
+      TOKEN_TYPE: Bearer                         # claim typ của access token Keycloak
+      CLOCK_SKEW: 30s
+      JWKS_TTL: 5m
+    # authz: chỉ Envoy gọi được (TB Envoy → auth-svc); identity: lấy JWKS (TB2a).
+    # KHÔNG có "ports" — host không gọi thẳng auth-svc.
+    networks: [authz, identity]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/app", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      keycloak: { condition: service_healthy }
+
+  envoy:
+    image: envoyproxy/envoy:distroless-v1.39.4   # ghim phiên bản (quyết định 2026-10-17)
+    # --file-flush-interval-msec 1000: đẩy access log ra stdout mỗi 1 s (mặc định 10 s) để SIEM nhận gần thời gian thực.
+    command: ["-c", "/etc/envoy/envoy.yaml", "--log-level", "info", "--file-flush-interval-msec", "1000"]
+    ports:
+      - "127.0.0.1:8443:8443"                    # P1 — cổng vào chính tới API, chỉ trên localhost
+      - "127.0.0.1:8444:8444"                    # P0 — baseline chỉ jwt_authn, để so sánh (tuần 11)
+    volumes:
+      - type: bind
+        source: ./gateway/envoy.yaml
+        target: /etc/envoy/envoy.yaml
+        read_only: true
+      # Cert/khoá do ./scripts/gen-certs.sh sinh. create_host_path: false → thiếu file thì
+      # compose báo lỗi ngay, thay vì âm thầm tạo một thư mục rỗng trùng tên.
+      - type: bind
+        source: ./secrets/tls/envoy.crt
+        target: /etc/envoy/tls/envoy.crt
+        read_only: true
+        bind: { create_host_path: false }
+      - type: bind
+        source: ./secrets/tls/envoy.key
+        target: /etc/envoy/tls/envoy.key
+        read_only: true
+        bind: { create_host_path: false }
+    # edge: nhận request từ client (TB1a); identity: lấy JWKS của Keycloak (TB2a);
+    # authz: gọi auth-svc; backend: chuyển request vào API (TB3).
+    # Envoy là service duy nhất nối cả phía client lẫn phía backend.
+    networks: [edge, identity, authz, backend]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on:
+      keycloak: { condition: service_healthy }
+      auth-svc: { condition: service_healthy }
+      orders-api: { condition: service_healthy }
+      profile-api: { condition: service_healthy }
+
 networks:
+  edge:
+    name: topic09-edge                           # client → gateway (TB1a)
   identity:
     name: topic09-identity
+  authz:
+    name: topic09-authz                          # Envoy ↔ auth-svc; tuần 5 OPA dùng mạng riêng với auth-svc
+    internal: true
   backend:
     name: topic09-backend
     internal: true                               # mạng kín: không ra Internet, không publish port

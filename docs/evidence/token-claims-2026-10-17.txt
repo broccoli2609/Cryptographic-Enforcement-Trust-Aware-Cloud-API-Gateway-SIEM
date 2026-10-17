@@ -1,0 +1,6 @@
+# Claim trong access token (Auth Code + PKCE, client web-app) — 2026-10-17T02:06:32+00:00
+user     dept         tier      aud          typ     alg    realm_roles
+alice    sales        standard  topic09-api  Bearer  RS256  ['employee']
+bob      engineering  premium   topic09-api  Bearer  RS256  ['employee']
+carol    hr           standard  topic09-api  Bearer  RS256  ['hr', 'employee']
+dave     sales        premium   topic09-api  Bearer  RS256  ['manager', 'employee']

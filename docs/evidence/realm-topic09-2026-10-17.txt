@@ -1,0 +1,43 @@
+# Realm topic09 — cấu hình đang chạy (2026-10-17T02:08:16+00:00)
+
+## Realm
+  realm                        = topic09
+  sslRequired                  = external
+  registrationAllowed          = False
+  bruteForceProtected          = True
+  failureFactor                = 5
+  passwordPolicy               = length(12) and notUsername
+  defaultSignatureAlgorithm    = RS256
+  accessTokenLifespan          = 300
+  accessCodeLifespan           = 60
+  revokeRefreshToken           = True
+  refreshTokenMaxReuse         = 0
+  eventsEnabled                = True
+  adminEventsEnabled           = True
+
+## Client
+  batch-worker:
+    publicClient=False clientAuthenticator=client-jwt fullScopeAllowed=False
+    standardFlow=False implicit=False directAccessGrants(ROPC)=False serviceAccounts=True
+    redirectUris=[]
+    token.endpoint.auth.signing.alg = ES256
+    use.jwks.url = false
+    jwt.credential.certificate = ĐÃ ĐĂNG KÝ
+    protocolMappers = ['audience-topic09-api']
+  web-app:
+    publicClient=True clientAuthenticator=client-secret fullScopeAllowed=False
+    standardFlow=True implicit=False directAccessGrants(ROPC)=False serviceAccounts=False
+    redirectUris=['http://localhost:3000/callback']
+    pkce.code.challenge.method = S256
+    protocolMappers = ['tier', 'audience-topic09-api', 'dept']
+
+## User
+  username                       dept         tier      realm roles
+  alice                          sales        standard  ['employee']
+  bob                            engineering  premium   ['employee']
+  carol                          hr           standard  ['employee', 'hr']
+  dave                           sales        premium   ['employee', 'manager']
+
+## JWKS công khai (kid rút gọn, kty, alg, use)
+  U5ssb5zZnCVFBXrN RSA  RSA-OAEP  enc
+  Plx0cWlevKnBlzy5 RSA  RS256     sig

@@ -1,0 +1,59 @@
+# Authorization Code + PKCE — user alice — 2026-10-17T02:06:00+00:00
+# Issuer: http://localhost:8080/realms/topic09   Client: web-app (public)
+
+## Bước 1–2: client sinh PKCE, state, nonce
+code_verifier  = <code_verifier: 43 ký tự, sha256=4049595e68c3…>   ← bí mật, chỉ client giữ
+code_challenge = QElZXmjDrrRiUhDsm9zBccz3jJxHPCNNqyHpLaXQhLU   ← BASE64URL(SHA-256(code_verifier)), gửi công khai
+state = q87kWGEJCCcPIUwmgVsrIQ   nonce = qV4Cv4sl00cxYpoPHB5dwQ
+
+## Bước 3: GET http://localhost:8080/realms/topic09/protocol/openid-connect/auth
+   ?response_type=code&client_id=web-app&redirect_uri=http%3A%2F%2Flocalhost%3A3000%2Fcallback&scope=openid
+   &state=q87kWGEJCCcPIUwmgVsrIQ&nonce=qV4Cv4sl00cxYpoPHB5dwQ&code_challenge=QElZXmjDrrRiUhDsm9zBccz3jJxHPCNNqyHpLaXQhLU&code_challenge_method=S256
+< 200 — trang đăng nhập; form action = http://localhost:8080/realms/topic09/login-actions/authenticate?session_code=…
+
+## Bước 4: POST form đăng nhập (username=alice, password=<che>)
+< 302 Found
+< Location: http://localhost:3000/callback?state=q87kWGEJCCcPIUwmgVsrIQ&iss=http://localhost:8080/realms/topic09&code=<code: 98 ký tự, sha256=1bfd40201695…>
+
+## Bước 5: client kiểm response
+state khớp giá trị đã gửi: OK
+iss = http://localhost:8080/realms/topic09: OK
+
+## Bước 6: POST http://localhost:8080/realms/topic09/protocol/openid-connect/token
+> grant_type=authorization_code, client_id=web-app, redirect_uri=http://localhost:3000/callback,
+> code=<code: 98 ký tự, sha256=1bfd40201695…>, code_verifier=<code_verifier: 43 ký tự, sha256=4049595e68c3…>
+< 200 OK  token_type=Bearer  expires_in=300  scope=openid email profile
+
+## Bước 7: token nhận được (giải mã để xem, chưa kiểm chữ ký — việc của gateway)
+access_token  = <access_token: 1177 ký tự, sha256=a31af075b48e…>
+    header : {"alg": "RS256", "typ": "JWT", "kid": "Plx0cWlevKnBlzy5dCcf7M0PMzmzLi2Bfmfrtlx-3FA"}
+    payload: {
+      "exp": 1792203061,
+      "iat": 1792202761,
+      "auth_time": 1792202760,
+      "jti": "onrtac:b868f407-7db2-c641-886d-8cab9762637c",
+      "iss": "http://localhost:8080/realms/topic09",
+      "aud": "topic09-api",
+      "sub": "a6dd1608-1da4-43c5-bdcb-e80f368478f6",
+      "typ": "Bearer",
+      "azp": "web-app",
+      "sid": "ed5Z55-nPe51pZw8nWcizpiZ",
+      "acr": "1",
+      "realm_access": {
+        "roles": [
+          "employee"
+        ]
+      },
+      "scope": "openid email profile",
+      "email_verified": true,
+      "tier": "standard",
+      "name": "Alice Nguyen",
+      "preferred_username": "alice",
+      "dept": "sales",
+      "given_name": "Alice",
+      "family_name": "Nguyen",
+      "email": "alice@example.com"
+    }
+id_token      = <id_token: 1111 ký tự, sha256=afb8df01dad2…>
+    typ=ID aud=web-app nonce khớp: OK
+refresh_token = <refresh_token: 761 ký tự, sha256=3eae25c0f34e…>

@@ -1,0 +1,244 @@
+# Envoy — PEP (Policy Enforcement Point) của lab Topic 09.
+#
+# Hai listener, cùng TLS, cùng route, chỉ khác chuỗi filter (để so sánh profile ở tuần 11):
+#   :8443  P1 = TLS 1.3 → header_mutation → jwt_authn → ext_authz (auth-svc: JWT chặt) → router
+#   :8444  P0 = TLS 1.3 → header_mutation → jwt_authn → router          (baseline, tuần 4 T5)
+#
+# Thứ tự filter = thứ tự bảo vệ. Các khối dùng chung khai báo một lần bằng YAML anchor (&tên)
+# và dùng lại bằng alias (*tên).
+# Không có mục "admin:" — cổng quản trị của Envoy (xem cấu hình, /quitquitquit…) không mở.
+
+overload_manager:
+  # Giới hạn số kết nối đồng thời từ client (T10 — resource abuse).
+  resource_monitors:
+    - name: envoy.resource_monitors.global_downstream_max_connections
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig
+        max_active_downstream_connections: 1000
+
+static_resources:
+  listeners:
+    # ===================================================================== P1 :8443
+    - name: https_p1
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 8443 }
+      per_connection_buffer_limit_bytes: 32768
+      filter_chains:
+        - transport_socket: &tls
+            name: envoy.transport_sockets.tls
+            typed_config:
+              "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.DownstreamTlsContext
+              common_tls_context:
+                # SR-01: chỉ TLS 1.3. Client chỉ hỗ trợ TLS 1.2 trở xuống bị từ chối khi bắt tay,
+                # nên không có đường hạ cấp giao thức.
+                tls_params:
+                  tls_minimum_protocol_version: TLSv1_3
+                  tls_maximum_protocol_version: TLSv1_3
+                alpn_protocols: ["h2", "http/1.1"]
+                tls_certificates:
+                  - certificate_chain: { filename: /etc/envoy/tls/envoy.crt }
+                    private_key: { filename: /etc/envoy/tls/envoy.key }
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_p1
+                codec_type: AUTO
+                server_name: topic09-gateway
+                use_remote_address: true            # Envoy là điểm vào: IP client lấy từ kết nối, không tin X-Forwarded-For
+                preserve_external_request_id: false # không tin X-Request-Id client gửi; Envoy tự sinh UUID
+                max_request_headers_kb: 16          # khớp MaxHeaderBytes 16 KiB của backend (T10)
+                request_headers_timeout: 5s
+                stream_idle_timeout: 30s
+                common_http_protocol_options: &http_opts
+                  idle_timeout: 60s
+                  # Chặn header có dấu "_" (ví dụ x_user): một số proxy/framework coi x_user = x-user,
+                  # kẻ tấn công dùng cách đó để lách bộ lọc header.
+                  headers_with_underscores_action: REJECT_REQUEST
+                normalize_path: true
+                merge_slashes: true
+                path_with_escaped_slashes_action: REJECT_REQUEST
+                access_log: &access_log
+                  # SR-10: không ghi đường dẫn thật (có ID đơn hàng), không ghi header/token.
+                  # Route ghi theo tên route — tương đương r.Pattern của backend.
+                  # listener_port: 8443 = P1, 8444 = P0.
+                  - name: envoy.access_loggers.stdout
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+                      log_format:
+                        json_format:
+                          service: envoy
+                          event_time: "%START_TIME(%Y-%m-%dT%H:%M:%S.%3fZ)%"
+                          request_id: "%REQ(X-REQUEST-ID)%"
+                          listener_port: "%DOWNSTREAM_LOCAL_PORT%"
+                          method: "%REQ(:METHOD)%"
+                          route_name: "%ROUTE_NAME%"
+                          status_code: "%RESPONSE_CODE%"
+                          response_flags: "%RESPONSE_FLAGS%"
+                          response_code_details: "%RESPONSE_CODE_DETAILS%"
+                          upstream_cluster: "%UPSTREAM_CLUSTER%"
+                          duration_ms: "%DURATION%"
+                          tls_version: "%DOWNSTREAM_TLS_VERSION%"
+                          client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
+                route_config: &routes
+                  name: api_routes
+                  virtual_hosts:
+                    - name: api
+                      # Chỉ nhận đúng tên host của gateway; Host lạ → 404 (chống Host header injection).
+                      domains: ["localhost:8443", "127.0.0.1:8443", "localhost:8444", "127.0.0.1:8444"]
+                      routes:
+                        - name: orders
+                          match: { path_separated_prefix: /orders }   # /orders và /orders/..., không khớp /ordersX
+                          route: { cluster: orders_api, timeout: 5s }
+                        - name: profile
+                          match: { path_separated_prefix: /profile }
+                          route: { cluster: profile_api, timeout: 5s }
+                      # Đường dẫn khác: Envoy trả 404, không chuyển vào backend nào.
+                http_filters:
+                  # (1) Luật 5 / RFC 9700 §4.13: xoá mọi header danh tính client tự gửi, TRƯỚC mọi
+                  # filter khác. Chỉ gateway được đặt các header này sau khi kiểm token.
+                  - &strip_identity
+                    name: envoy.filters.http.header_mutation
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.header_mutation.v3.HeaderMutation
+                      mutations:
+                        request_mutations:
+                          - remove: x-user
+                          - remove: x-user-roles
+                          - remove: x-user-dept
+                          - remove: x-user-tier
+                          - remove: x-jwt-payload
+                  # (2) Lớp kiểm thứ nhất (giống P0). forward: true vì auth-svc ở bước sau cần đọc
+                  # token; auth-svc sẽ xoá Authorization trước khi vào backend.
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        keycloak:
+                          issuer: http://localhost:8080/realms/topic09
+                          audiences: [topic09-api]
+                          remote_jwks: &remote_jwks
+                            http_uri:
+                              uri: http://keycloak:8080/realms/topic09/protocol/openid-connect/certs
+                              cluster: keycloak
+                              timeout: 2s
+                            cache_duration: 300s   # JWKS cache TTL 5 phút
+                            async_fetch: {}        # tải JWKS ngay khi khởi động, không đợi request đầu
+                            retry_policy:
+                              num_retries: 3
+                              retry_back_off: { base_interval: 0.5s, max_interval: 5s }
+                          clock_skew_seconds: 30
+                          forward: true
+                      rules:
+                        - match: { prefix: / }
+                          requires: { provider_name: keycloak }
+                  # (3) P1: auth-svc kiểm JWT chặt (alg allow-list, typ, iat, crit, kích thước…) và
+                  # đặt X-User. Tuần 5: auth-svc gọi thêm OPA.
+                  # SR-11 fail closed: auth-svc lỗi / timeout / sập → 403, KHÔNG BAO GIỜ cho qua.
+                  - name: envoy.filters.http.ext_authz
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
+                      transport_api_version: V3
+                      failure_mode_allow: false
+                      status_on_error: { code: Forbidden }
+                      include_peer_certificate: false
+                      grpc_service:
+                        envoy_grpc: { cluster_name: auth_svc }
+                        timeout: 0.5s
+                  - &router
+                    name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+
+    # ===================================================================== P0 :8444
+    - name: https_p0
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 8444 }
+      per_connection_buffer_limit_bytes: 32768
+      filter_chains:
+        - transport_socket: *tls
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_p0
+                codec_type: AUTO
+                server_name: topic09-gateway
+                use_remote_address: true
+                preserve_external_request_id: false
+                max_request_headers_kb: 16
+                request_headers_timeout: 5s
+                stream_idle_timeout: 30s
+                common_http_protocol_options: *http_opts
+                normalize_path: true
+                merge_slashes: true
+                path_with_escaped_slashes_action: REJECT_REQUEST
+                access_log: *access_log
+                route_config: *routes
+                http_filters:
+                  - *strip_identity
+                  # P0: chỉ jwt_authn. Kiểm chữ ký theo JWKS, iss, aud, exp/nbf; KHÔNG kiểm alg
+                  # allow-list hay claim typ — đó là phần P1 thêm vào.
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        keycloak:
+                          issuer: http://localhost:8080/realms/topic09
+                          audiences: [topic09-api]
+                          remote_jwks: *remote_jwks
+                          clock_skew_seconds: 30
+                          forward: false           # xoá Authorization sau khi kiểm: backend không thấy token
+                          claim_to_headers:
+                            - header_name: x-user  # danh tính đã kiểm = claim sub
+                              claim_name: sub
+                      rules:
+                        - match: { prefix: / }
+                          requires: { provider_name: keycloak }
+                  - *router
+
+  clusters:
+    - name: keycloak
+      type: STRICT_DNS
+      connect_timeout: 1s
+      dns_lookup_family: V4_ONLY
+      load_assignment:
+        cluster_name: keycloak
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: keycloak, port_value: 8080 } } }
+    # Envoy → auth-svc: gRPC (HTTP/2) trong mạng internal "authz". Như TB3, tin bằng vị trí mạng.
+    - name: auth_svc
+      type: STRICT_DNS
+      connect_timeout: 0.5s
+      dns_lookup_family: V4_ONLY
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: auth_svc
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: auth-svc, port_value: 9191 } } }
+    # TB3 (Envoy → backend): HTTP thường trong mạng internal — tin bằng vị trí mạng (yếu, đã ghi
+    # trong threat model; mTLS east-west thuộc track B, ngoài phạm vi).
+    - name: orders_api
+      type: STRICT_DNS
+      connect_timeout: 1s
+      dns_lookup_family: V4_ONLY
+      load_assignment:
+        cluster_name: orders_api
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: orders-api, port_value: 8081 } } }
+    - name: profile_api
+      type: STRICT_DNS
+      connect_timeout: 1s
+      dns_lookup_family: V4_ONLY
+      load_assignment:
+        cluster_name: profile_api
+        endpoints:
+          - lb_endpoints:
+              - endpoint: { address: { socket_address: { address: profile-api, port_value: 8082 } } }
