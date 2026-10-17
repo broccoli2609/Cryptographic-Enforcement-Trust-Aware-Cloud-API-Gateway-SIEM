@@ -1,7 +1,7 @@
 // Package service là phần khung dùng chung cho các backend của lab:
 // health check, log JSON, timeout chống request treo và tắt máy êm.
 //
-// Hiện tại backend chưa có nghiệp vụ: mọi route ngoài /healthz trả 501.
+// Hiện tại backend chưa có nghiệp vụ: ngoài /healthz và <prefix>/whoami, mọi route trả 501.
 // Tuần 7 sẽ thêm kiểm tra object-level (orders-api) và property-level (profile-api).
 package service
 
@@ -42,11 +42,36 @@ func NewLogger(w io.Writer, service string) *slog.Logger {
 	return slog.New(slog.NewJSONHandler(w, nil)).With("service", service)
 }
 
-// NewHandler dựng router: GET /healthz trả 200, mọi route khác trả 501.
-func NewHandler(service string, logger *slog.Logger) http.Handler {
+// maxIdentityLen giới hạn độ dài X-User (sub của Keycloak là UUID 36 ký tự).
+const maxIdentityLen = 128
+
+// NewHandler dựng router của một backend. prefix là đường dẫn gốc mà gateway chuyển vào
+// service này (orders-api: "/orders", profile-api: "/profile"):
+//
+//	GET /healthz          200 — cho Docker healthcheck, không đi qua gateway
+//	GET <prefix>/whoami   200 + danh tính gateway đã đặt trong X-User (tuần 4)
+//	mọi route khác        501 — nghiệp vụ thêm ở tuần 7
+func NewHandler(service, prefix string, logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": service})
+	})
+	// whoami trả lại danh tính mà gateway gắn vào request. Hai mục đích:
+	//   - chứng minh request có token hợp lệ đi qua gateway tới được backend (mốc M1);
+	//   - kiểm Envoy đã xoá X-User do client tự gửi (luật 5): client gửi "X-User: admin"
+	//     thì ở đây phải thấy sub thật trong token, không phải "admin".
+	// Không có X-User nghĩa là request không đi qua gateway (T5) → 401, không đoán danh tính.
+	// Giá trị X-User KHÔNG được ghi vào log (log chỉ có route, mã HTTP, thời gian).
+	mux.HandleFunc("GET "+prefix+"/whoami", func(w http.ResponseWriter, r *http.Request) {
+		user := r.Header.Get("X-User")
+		switch {
+		case user == "":
+			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "missing_identity"})
+		case len(user) > maxIdentityLen:
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_identity"})
+		default:
+			writeJSON(w, http.StatusOK, map[string]string{"service": service, "user": user})
+		}
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, map[string]string{"error": "not_implemented"})

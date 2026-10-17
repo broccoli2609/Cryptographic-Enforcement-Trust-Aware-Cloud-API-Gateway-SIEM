@@ -21,7 +21,7 @@ func main() {
 	}
 
 	logger := service.NewLogger(os.Stdout, cfg.Name)
-	if err := service.Run(cfg, service.NewHandler(cfg.Name, logger), logger); err != nil {
+	if err := service.Run(cfg, service.NewHandler(cfg.Name, "/profile", logger), logger); err != nil {
 		logger.Error("server stopped", "error", err.Error())
 		os.Exit(1)
 	}

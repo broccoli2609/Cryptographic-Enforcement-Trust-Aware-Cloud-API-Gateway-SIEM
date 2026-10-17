@@ -1,0 +1,40 @@
+# TLS của gateway localhost:8443 — 2026-10-17T02:16:38+00:00
+# OpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)
+
+## 1. openssl s_client -tls1_3 -CAfile ca.crt -verify_return_error
+    Protocol version: TLSv1.3
+    Ciphersuite: TLS_AES_256_GCM_SHA384
+    Peer certificate: CN = localhost, O = topic09-lab
+    Hash used: SHA256
+    Signature type: ECDSA
+    Verification: OK
+    Server Temp Key: X25519, 253 bits
+  [PASS] bắt tay TLS 1.3, cert hợp lệ theo CA nội bộ
+
+## 2. openssl s_client -tls1_2 (phải THẤT BẠI — không cho hạ cấp)
+    406792E88C720000:error:0A00042E:SSL routines:ssl3_read_bytes:tlsv1 alert protocol version:../ssl/record/rec_layer_s3.c:1599:SSL alert number 70
+    New, (NONE), Cipher is (NONE)
+        Protocol  : TLSv1.2
+  [PASS] TLS 1.2 bị từ chối khi bắt tay (openssl thoát mã 1)
+
+## 3. curl --tlsv1.2 --tls-max 1.2 (phía client giới hạn TLS 1.2 — phải thất bại)
+    curl: (35) OpenSSL/3.0.13: error:0A00042E:SSL routines::tlsv1 alert protocol version
+  [PASS] curl không kết nối được bằng TLS 1.2
+
+## 4. HTTP thường (không TLS) vào cổng localhost:8443 (phải không có phản hồi HTTP)
+  [PASS] không có phản hồi HTTP (mã curl 000) — không có kênh rõ
+
+## 5. Thông tin cert gateway (secrets/tls/envoy.crt)
+    subject=CN = localhost, O = topic09-lab
+    issuer=CN = topic09-lab Root CA, O = topic09-lab
+    notAfter=Jan 15 02:11:03 2027 GMT
+    X509v3 Extended Key Usage: 
+        TLS Web Server Authentication
+    X509v3 Subject Alternative Name: 
+        DNS:localhost, IP Address:127.0.0.1, DNS:envoy
+    NIST CURVE: P-256
+    Public Key Algorithm: id-ecPublicKey
+    Signature Algorithm: ecdsa-with-SHA256
+    Signature Algorithm: ecdsa-with-SHA256
+
+Kết quả: 4/4 PASS
