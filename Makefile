@@ -1,8 +1,8 @@
 COMPOSE ?= docker compose
 
-.PHONY: up down ps logs smoke test env-check perf-check
+.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence
 
-up:            ## Build và chạy lab nền
+up:            ## Build và chạy lab nền (cần đã chạy `make certs` một lần)
 	$(COMPOSE) up -d --build
 
 down:          ## Dừng lab (giữ dữ liệu Keycloak)
@@ -14,14 +14,57 @@ ps:            ## Trạng thái các container
 logs:          ## Xem log liên tục
 	$(COMPOSE) logs -f --tail=50
 
-smoke:         ## Kiểm nhanh lab sau khi up
+smoke:         ## Kiểm nhanh lab sau khi up (16 PASS là đạt)
 	./scripts/smoke-test.sh
 
-test:          ## Unit test của backend
+test:          ## Unit test của backend và auth-svc
 	cd workloads && go test ./...
+	cd gateway/auth-svc && go test ./...
 
 env-check:     ## Kiểm Docker, Go, perf trên máy
 	./scripts/check-env.sh
 
 perf-check:    ## Kiểm perf đếm được cycles không, lưu bằng chứng
 	./scripts/check-perf.sh
+
+# --- Tuần 3–4: IdP, gateway ---
+
+certs:         ## Sinh CA nội bộ + cert TLS cho Envoy vào secrets/tls/ (chạy trước `make up` lần đầu)
+	./scripts/gen-certs.sh
+
+batch-key:     ## Sinh khoá batch-worker + đăng ký chứng chỉ vào Keycloak (sau `make up`)
+	./scripts/batch-worker-key.sh
+
+realm:         ## In cấu hình realm topic09 đang chạy
+	./scripts/check-realm.sh
+
+pkce:          ## Chạy Authorization Code + PKCE cho alice, in trace
+	./scripts/pkce-login.sh alice
+
+pkce-negative: ## 7 ca PKCE sai phải bị từ chối
+	./scripts/pkce-negative.sh
+
+cc:            ## Client Credentials + private_key_jwt + 5 ca sai
+	./scripts/client-credentials.sh
+
+tls:           ## Kiểm gateway chỉ nói TLS 1.3
+	./scripts/check-tls.sh
+
+gateway-test:  ## Kiểm đầu-cuối P1 (:8443) và P0 (:8444)
+	./scripts/gateway-test.sh 8443
+	./scripts/gateway-test.sh 8444
+
+failclosed:    ## Dừng auth-svc → P1 phải trả 403 (SR-11), rồi bật lại
+	./scripts/failclosed-test.sh
+
+evidence:      ## Chạy lại mọi kiểm tra tuần 3–4 và lưu vào docs/evidence, docs/traces
+	./scripts/check-realm.sh > docs/evidence/realm-topic09-$$(date +%F).txt
+	./scripts/token-claims.sh > docs/evidence/token-claims-$$(date +%F).txt
+	./scripts/pkce-login.sh alice > docs/traces/pkce-auth-code-$$(date +%F).txt
+	./scripts/pkce-negative.sh > docs/evidence/pkce-negative-$$(date +%F).txt
+	./scripts/client-credentials.sh > docs/traces/client-credentials-$$(date +%F).txt
+	./scripts/check-tls.sh > docs/evidence/tls13-$$(date +%F).txt
+	./scripts/gateway-test.sh 8443 > docs/evidence/gateway-p1-$$(date +%F).txt
+	./scripts/gateway-test.sh 8444 > docs/evidence/gateway-p0-$$(date +%F).txt
+	./scripts/failclosed-test.sh > docs/evidence/failclosed-auth-svc-$$(date +%F).txt
+	./scripts/smoke-test.sh > docs/evidence/smoke-test-$$(date +%F).txt
