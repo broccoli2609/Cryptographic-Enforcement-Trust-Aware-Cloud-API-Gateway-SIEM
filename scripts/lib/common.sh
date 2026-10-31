@@ -175,6 +175,52 @@ jws_es256() {
   printf '%s.%s.%s' "$h" "$p" "$(printf '%s.%s' "$h" "$p" | sign_es256 "$1")"
 }
 
+# ---------- DPoP (RFC 9449) — tuần 6 ----------
+# Client giữ một cặp khoá riêng (tài sản #9). Mỗi request kèm một "DPoP proof": JWT ngắn hạn
+# ký bằng khoá riêng, mang khoá công khai trong header (jwk), ghi method (htm) + URL (htu) +
+# thời điểm (iat) + mã ngẫu nhiên (jti), và — khi gọi API — hash của access token (ath).
+# Keycloak gắn token vào khoá bằng claim cnf.jkt = thumbprint của khoá công khai.
+
+# dpop_keygen FILE — sinh khoá EC P-256 cho DPoP, quyền 600.
+dpop_keygen() { (umask 077 && openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 -out "$1" 2>/dev/null); }
+
+# dpop_jwk FILE — JWK CÔNG KHAI của khoá: chỉ crv, kty, x, y (không có "d" = khoá riêng),
+# khoá xếp theo thứ tự chữ cái, không khoảng trắng — đúng dạng RFC 7638 §3 để tính thumbprint.
+dpop_jwk() {
+  openssl pkey -in "$1" -pubout -outform DER | python3 -c 'import base64, json, sys
+der = sys.stdin.buffer.read()
+pt = der[-65:]   # SubjectPublicKeyInfo của P-256 dài 91 byte; 65 byte cuối là điểm 04 || X || Y
+assert len(der) == 91 and pt[0] == 4, "không phải khoá công khai P-256"
+b = lambda x: base64.urlsafe_b64encode(x).rstrip(b"=").decode()
+print(json.dumps({"crv": "P-256", "kty": "EC", "x": b(pt[1:33]), "y": b(pt[33:])}, separators=(",", ":")))'
+}
+
+# dpop_jkt FILE — thumbprint JWK (RFC 7638) = BASE64URL(SHA-256(JWK dạng gọn)).
+dpop_jkt() { dpop_jwk "$1" | tr -d '\n' | openssl dgst -sha256 -binary | b64url; }
+
+# dpop_ath TOKEN — BASE64URL(SHA-256(ASCII(access token))) (RFC 9449 §4.2).
+dpop_ath() { printf %s "$1" | openssl dgst -sha256 -binary | b64url; }
+
+# dpop_proof FILE METHOD URL [ACCESS_TOKEN] — in một DPoP proof MỚI (jti ngẫu nhiên, iat = bây giờ).
+# Có ACCESS_TOKEN thì thêm ath (bắt buộc khi gọi resource server). Để thử ca sai, đặt biến:
+#   DPOP_TYP, DPOP_IAT, DPOP_JTI, DPOP_HTM, DPOP_HTU, DPOP_ATH, DPOP_JWK (JSON thay cho khoá thật).
+dpop_proof() {
+  local key=$1 htm=${DPOP_HTM:-$2} htu=${DPOP_HTU:-$3} tok=${4:-} header payload ath
+  header=$(printf '{"typ":"%s","alg":"ES256","jwk":%s}' "${DPOP_TYP:-dpop+jwt}" "${DPOP_JWK:-$(dpop_jwk "$key")}")
+  payload=$(printf '{"jti":"%s","htm":"%s","htu":"%s","iat":%d' \
+    "${DPOP_JTI:-$(rand_b64url 16)}" "$htm" "$htu" "${DPOP_IAT:-$(date +%s)}")
+  ath=${DPOP_ATH:-}
+  [ -z "$ath" ] && [ -n "$tok" ] && ath=$(dpop_ath "$tok")
+  [ -n "$ath" ] && payload+=$(printf ',"ath":"%s"' "$ath")
+  jws_es256 "$key" "$header" "$payload}"
+}
+
+# dpop_header PROOF — dòng header DPoP cho curl -H @<(dpop_header "$P")
+dpop_header() { printf 'DPoP: %s\n' "$1"; }
+
+# dpop_auth TOKEN — dòng Authorization theo scheme DPoP (RFC 9449 §7.1), không phải Bearer.
+dpop_auth() { printf 'Authorization: DPoP %s\n' "$1"; }
+
 # ---------- Admin REST API ----------
 
 # kc_admin_token — access token quản trị (realm master, client admin-cli).

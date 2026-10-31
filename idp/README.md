@@ -6,6 +6,8 @@
 - Realm đã có trong volume `keycloak-data` thì Keycloak **bỏ qua** file (chiến lược `IGNORE_EXISTING`).
   Sửa file xong muốn áp dụng: xoá realm `topic09` trong admin console (hoặc
   `DELETE /admin/realms/topic09`) rồi `docker compose restart keycloak`.
+  Chỉ thêm **một client** thì không cần xoá realm: `./scripts/kc-apply-client.sh <clientId>` đọc
+  client + scope mapping từ file này và tạo qua Admin REST API (không ghi đè client đã có).
 - Mật khẩu user không nằm trong file: `${LAB_USER_PASSWORD}` được Keycloak thay bằng biến
   môi trường lấy từ `.env`.
 - Khoá công khai của `batch-worker` không nằm trong file (khoá sinh trên từng máy):
@@ -17,10 +19,14 @@
 | Client | Loại | Luồng | Xác thực client | Ghi chú bảo mật |
 |---|---|---|---|---|
 | `web-app` | public | Authorization Code + PKCE | không có (public) | PKCE bắt buộc `S256`; `redirect_uri` đúng một giá trị `http://localhost:3000/callback`; tắt implicit và ROPC |
+| `web-app-dpop` (tuần 6) | public | Authorization Code + PKCE + **DPoP** | không có (public) | như `web-app` + `dpop.bound.access.tokens: true`: thiếu DPoP proof ở token endpoint → `400 DPoP proof is missing`. Token có `typ: "DPoP"` và `cnf.jkt`; refresh token cũng gắn khoá (RFC 9449 §5). Dùng cho profile P2 (`:8445`) |
 | `batch-worker` | confidential | Client Credentials | `private_key_jwt` (`client-jwt`), chữ ký bắt buộc ES256 | không có secret dùng chung; Keycloak chỉ giữ chứng chỉ (khoá công khai) |
 
-Cả hai client có `fullScopeAllowed: false`, chỉ được cấp các role ghi trong `scopeMappings`
-(`web-app`: employee/manager/hr; `batch-worker`: batch). Hệ quả: token không mang role thừa,
+`web-app-dpop` là client riêng (không bật DPoP trên `web-app`) để token bearer của P0/P1 vẫn
+dùng được cho bài so sánh profile ở tuần 11.
+
+Mọi client có `fullScopeAllowed: false`, chỉ được cấp các role ghi trong `scopeMappings`
+(`web-app`, `web-app-dpop`: employee/manager/hr; `batch-worker`: batch). Hệ quả: token không mang role thừa,
 `aud` không có `account`. Đây là nguyên tắc giới hạn đặc quyền của token (RFC 9700 §2.3).
 Mapper `audience-topic09-api` đặt `aud = topic09-api`; gateway sẽ chỉ nhận token có `aud` này.
 
