@@ -1,0 +1,46 @@
+# opa test — policy topic09.authz — 2026-10-31T02:26:28+00:00
+# image: openpolicyagent/opa:1.21.4-static
+
+## opa fmt --list (rỗng = đúng định dạng)
+
+## opa check --strict
+OK
+
+## opa test -v
+PASS: 29/29
+data.topic09.authz_test.test_bad_path_shapes_are_denied: PASS
+data.topic09.authz_test.test_batch_cannot_create_order: PASS
+data.topic09.authz_test.test_batch_cannot_read_single_order: PASS
+data.topic09.authz_test.test_batch_lists_orders: PASS
+data.topic09.authz_test.test_decision_log_masks_real_path: PASS
+data.topic09.authz_test.test_dept_compare_is_exact: PASS
+data.topic09.authz_test.test_employee_cannot_delete_order: PASS
+data.topic09.authz_test.test_employee_cannot_read_other_profile: PASS
+data.topic09.authz_test.test_employee_reads_order: PASS
+data.topic09.authz_test.test_employee_reads_own_profile_route: PASS
+data.topic09.authz_test.test_empty_input_is_denied: PASS
+data.topic09.authz_test.test_every_decision_has_policy_metadata: PASS
+data.topic09.authz_test.test_hr_reads_any_profile: PASS
+data.topic09.authz_test.test_manager_deletes_order: PASS
+data.topic09.authz_test.test_method_not_in_table_is_denied: PASS
+data.topic09.authz_test.test_missing_dept_claim_is_denied: PASS
+data.topic09.authz_test.test_missing_tier_claim_is_denied: PASS
+data.topic09.authz_test.test_non_string_path_is_denied: PASS
+data.topic09.authz_test.test_only_hr_updates_profile: PASS
+data.topic09.authz_test.test_other_dept_cannot_create_order: PASS
+data.topic09.authz_test.test_premium_exports_orders: PASS
+data.topic09.authz_test.test_role_checked_before_attributes: PASS
+data.topic09.authz_test.test_role_names_are_exact: PASS
+data.topic09.authz_test.test_roles_must_be_array: PASS
+data.topic09.authz_test.test_sales_creates_order: PASS
+data.topic09.authz_test.test_specific_route_wins_over_param_route: PASS
+data.topic09.authz_test.test_standard_tier_cannot_export: PASS
+data.topic09.authz_test.test_unknown_route_is_denied: PASS
+data.topic09.authz_test.test_whoami_allowed_for_every_role: PASS
+
+## độ phủ (opa test --coverage)
+tổng: 99.4%
+  /policy/authz.rego: 98.6%, dòng chưa chạy: [139]
+  /policy/authz_test.rego: 100.0%, dòng chưa chạy: []
+  /policy/log_mask.rego: 100.0%, dòng chưa chạy: []
+  (dòng chưa chạy ở authz.rego là nhánh dự phòng else := "denied" — theo thiết kế không thể xảy ra)
