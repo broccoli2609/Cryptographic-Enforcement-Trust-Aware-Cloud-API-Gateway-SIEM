@@ -1,0 +1,56 @@
+# Phân quyền ở gateway (OPA, P1 :8443) — 2026-10-31T02:24:13+00:00
+# User (idp/README.md): alice employee/sales/standard · bob employee/engineering/premium
+#   carol employee+hr/hr/standard · dave employee+manager/sales/premium · batch-worker role batch
+# Policy: auth-svc healthy — topic09.authz, xem policy/authz.rego
+
+## A. RBAC — route + method theo role
+  [PASS] A1 alice   GET    /orders/whoami (mọi role) → QUA (backend 200)
+  [PASS] A2 batch   GET    /profile/whoami (mọi role) → QUA (backend 200)
+  [PASS] A3 dave    DELETE /orders/1 (manager) → QUA (backend 501)
+  [PASS] A4 alice   DELETE /orders/1 (employee → BFLA) → CHẶN (403)
+  [PASS] A5 carol   DELETE /orders/1 (hr → BFLA) → CHẶN (403)
+  [PASS] A6 batch   GET    /orders (batch đọc danh sách) → QUA (backend 501)
+  [PASS] A7 batch   POST   /orders (batch không tạo đơn) → CHẶN (403)
+  [PASS] A8 batch   GET    /orders/1 (batch không đọc từng đơn) → CHẶN (403)
+  [PASS] A9 carol   GET    /profile/u-1 (hr) → QUA (backend 501)
+  [PASS] A10 alice  GET    /profile/u-1 (employee xem hồ sơ người khác) → CHẶN (403)
+  [PASS] A11 dave   PATCH  /profile/u-1 (chỉ hr sửa hồ sơ) → CHẶN (403)
+  [PASS] A12 dave   PUT    /orders/1 (method không có trong bảng) → CHẶN (403)
+  [PASS] A13 dave   GET    /orders/a.b (tham số sai mẫu) → CHẶN (403)
+
+## B. ABAC 1 — POST /orders chỉ cho dept = sales
+  [PASS] B1 alice (sales) → QUA (backend 501)
+  [PASS] B2 dave (sales, manager) → QUA (backend 501)
+  [PASS] B3 bob (engineering) → CHẶN (403)
+  [PASS] B4 carol (hr) → CHẶN (403)
+
+## C. ABAC 2 — GET /orders/export chỉ cho tier = premium
+  [PASS] C1 bob (premium) → QUA (backend 501)
+  [PASS] C2 dave (premium) → QUA (backend 501)
+  [PASS] C3 alice (standard) → CHẶN (403)
+  [PASS] C4 carol (standard) → CHẶN (403)
+
+## D. Header tự gửi không nâng được quyền (input của OPA chỉ lấy từ token đã kiểm)
+  [PASS] D1 alice DELETE /orders/1 + X-User-Roles: manager → CHẶN (403)
+  [PASS] D2 alice GET /orders/export + X-User-Tier: premium → CHẶN (403)
+
+## E. So sánh P0 :8444 (không có OPA) — cùng request BFLA lọt tới backend
+  [PASS] E1 alice DELETE /orders/1 trên P0 → QUA (backend 501): P0 chỉ xác thực, không phân quyền — đúng định nghĩa baseline
+
+## Lý do từ chối trong log auth-svc (nối bằng x-request-id; client chỉ thấy {"error":"forbidden"})
+  A4 alice   DELETE /orders/1 (employee → BFLA)            reason=role_not_allowed route=orders.delete policy=topic09.authz@1.0.0
+  A5 carol   DELETE /orders/1 (hr → BFLA)                  reason=role_not_allowed route=orders.delete policy=topic09.authz@1.0.0
+  A7 batch   POST   /orders (batch không tạo đơn)       reason=role_not_allowed route=orders.create policy=topic09.authz@1.0.0
+  A8 batch   GET    /orders/1 (batch không đọc từng đơn) reason=role_not_allowed route=orders.read policy=topic09.authz@1.0.0
+  A10 alice  GET    /profile/u-1 (employee xem hồ sơ người khác) reason=role_not_allowed route=profile.read policy=topic09.authz@1.0.0
+  A11 dave   PATCH  /profile/u-1 (chỉ hr sửa hồ sơ)   reason=role_not_allowed route=profile.update policy=topic09.authz@1.0.0
+  A12 dave   PUT    /orders/1 (method không có trong bảng) reason=no_matching_route route= policy=topic09.authz@1.0.0
+  A13 dave   GET    /orders/a.b (tham số sai mẫu)        reason=no_matching_route route= policy=topic09.authz@1.0.0
+  B3 bob (engineering)                                       reason=abac_dept route=orders.create policy=topic09.authz@1.0.0
+  B4 carol (hr)                                              reason=abac_dept route=orders.create policy=topic09.authz@1.0.0
+  C3 alice (standard)                                        reason=abac_tier route=orders.export policy=topic09.authz@1.0.0
+  C4 carol (standard)                                        reason=abac_tier route=orders.export policy=topic09.authz@1.0.0
+  D1 alice DELETE /orders/1 + X-User-Roles: manager          reason=role_not_allowed route=orders.delete policy=topic09.authz@1.0.0
+  D2 alice GET /orders/export + X-User-Tier: premium         reason=abac_tier route=orders.export policy=topic09.authz@1.0.0
+
+Kết quả: 24/24 PASS

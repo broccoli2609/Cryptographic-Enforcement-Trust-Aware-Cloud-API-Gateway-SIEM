@@ -1,0 +1,75 @@
+# Profile P2 (:8445) — DPoP ở gateway — 2026-10-31T02:44:36+00:00
+# Token DPoP của alice: <access_token: 1289 ký tự, sha256=42b3152c2253…>, cnf.jkt = 0LxVoX5YAw5izeE_eYLyKBUyakLq8AIumzELYVdaLPU
+# Khoá kẻ tấn công: jkt = 3b9PCTRPXxyh0hinP4hZa3S4v3RoRfaU-S-X2jNqZ0g
+
+## A. Ca hợp lệ — mỗi request một proof MỚI (jti mới, iat = bây giờ, ath = hash token)
+  [PASS] A1 token DPoP + proof đúng GET /orders/whoami → 200 (backend)
+  [PASS] A1' backend nhận X-User = sub của alice
+  [PASS] A2 proof mới cho URL khác GET /profile/whoami → 200 (backend)
+  [PASS] A3 POST /orders (htm=POST; OPA: alice dept=sales được tạo đơn) → backend 501 → 501 (backend)
+  [PASS] A4 X-User: admin tự gửi bị xoá, backend thấy sub thật
+
+## B. Replay và token bị đánh cắp (T1 — S3, S4)
+  [PASS] B0 kẻ nghe lén bắt được request hợp lệ (token + proof) — lần đầu của chủ thật → 200 (backend)
+  [PASS] B1 phát lại NGUYÊN request đó (cùng token, cùng proof) → 401 (gateway)
+       WWW-Authenticate: DPoP algs="ES256", error="invalid_dpop_proof"
+  [PASS] B2 dùng token trộm như bearer (không proof) tới P2 → 401 (gateway)
+  [PASS] B3 token trộm, scheme DPoP, không có proof → 401 (gateway)
+  [PASS] B4 token trộm + proof ký bằng khoá của kẻ tấn công (jkt ≠ cnf.jkt) → 401 (gateway)
+  [PASS] B5 proof bắt được (chưa dùng) đem sang URL khác (htu) → 401 (gateway)
+  [PASS] B6 proof bắt được đem sang method khác (htm) → 401 (gateway)
+  [PASS] B7 10 request song song cùng một proof → đúng 1 lần 200, 9 lần 401
+
+## C. Proof sai — từng bước kiểm của RFC 9449 §4.3
+  [PASS] C1 (4) typ=JWT thay vì dpop+jwt → 401 (gateway)
+  [PASS] C2 (5) alg=none, không chữ ký → 401 (gateway)
+  [PASS] C3 (5) alg=HS256 (khoá đối xứng) → 401 (gateway)
+  [PASS] C4 (7) jwk chứa khoá riêng d → 401 (gateway)
+  [PASS] C5 (6) chữ ký bị lật 1 bit → 401 (gateway)
+  [PASS] C6 (3) thiếu jti → 401 (gateway)
+  [PASS] C7 (3) thiếu ath (proof không gắn với token) → 401 (gateway)
+  [PASS] C8 (12) ath là hash của token khác → 401 (gateway)
+  [PASS] C9 (9) htu trỏ host khác → 401 (gateway)
+  [PASS] C10 (9) htu cho cổng P1 đem sang P2 → 401 (gateway)
+  [PASS] C11 (11) iat cũ 60 s (cửa sổ 30 s) → 401 (gateway)
+  [PASS] C12 (11) iat ở tương lai 60 s → 401 (gateway)
+  [PASS] C13 (1) hai header DPoP trong một request → 401 (gateway)
+  [PASS] C14 proof > 4096 byte (T10: chặn trước khi giải mã) → 401 (gateway)
+
+## D. Hạ cấp DPoP → Bearer (RFC 9449 §7.2) — cùng token DPoP bị trộm, thử ở từng profile
+  [PASS] D1 P1 :8443 — token gắn khoá gửi như bearer → bị từ chối → 401 (gateway)
+  [PASS] D2 P0 :8444 — jwt_authn không biết DPoP → CHO QUA (điểm yếu của baseline, có chủ đích) → 200 (backend)
+  [PASS] D3 P2 — token bearer thường (không cnf, typ=Bearer) + proof hợp lệ → 401 (gateway)
+
+## E. Phân quyền OPA vẫn áp dụng sau DPoP
+  [PASS] E1 alice DELETE /orders/1 (proof đúng, nhưng employee không được xoá — BFLA) → 403 (gateway)
+
+## Lý do trong log auth-svc (nối bằng x-request-id; client chỉ thấy invalid_dpop_proof / invalid_token)
+  B1 phát lại NGUYÊN request đó (cùng token, cùng proof)   profile=p2 reason=dpop_replay
+  B2 dùng token trộm như bearer (không proof) tới P2        profile=- reason=(Envoy chặn trước auth-svc)
+  B3 token trộm, scheme DPoP, không có proof                   profile=p2 reason=dpop_missing
+  B4 token trộm + proof ký bằng khoá của kẻ tấn công (jkt ≠ cnf.jkt) profile=p2 reason=dpop_key_mismatch cnf_jkt=0LxVoX5Y… proof_jkt=3b9PCTRP…
+  B5 proof bắt được (chưa dùng) đem sang URL khác (htu)  profile=p2 reason=dpop_htu_mismatch
+  B6 proof bắt được đem sang method khác (htm)             profile=p2 reason=dpop_htm_mismatch
+  C1 (4) typ=JWT thay vì dpop+jwt                                 profile=p2 reason=dpop_bad_typ
+  C2 (5) alg=none, không chữ ký                                profile=p2 reason=dpop_alg_not_allowed
+  C3 (5) alg=HS256 (khoá đối xứng)                           profile=p2 reason=dpop_alg_not_allowed
+  C4 (7) jwk chứa khoá riêng d                                 profile=p2 reason=dpop_private_key_in_jwk
+  C5 (6) chữ ký bị lật 1 bit                                profile=p2 reason=dpop_bad_signature
+  C6 (3) thiếu jti                                               profile=p2 reason=dpop_missing_claim
+  C7 (3) thiếu ath (proof không gắn với token)              profile=p2 reason=dpop_missing_claim
+  C8 (12) ath là hash của token khác                           profile=p2 reason=dpop_ath_mismatch
+  C9 (9) htu trỏ host khác                                      profile=p2 reason=dpop_htu_mismatch
+  C10 (9) htu cho cổng P1 đem sang P2                           profile=p2 reason=dpop_htu_mismatch
+  C11 (11) iat cũ 60 s (cửa sổ 30 s)                          profile=p2 reason=dpop_iat_out_of_window
+  C12 (11) iat ở tương lai 60 s                                profile=p2 reason=dpop_iat_out_of_window
+  C13 (1) hai header DPoP trong một request                      profile=p2 reason=dpop_multiple_headers
+  C14 proof > 4096 byte (T10: chặn trước khi giải mã)      profile=p2 reason=dpop_too_large
+  D1 P1 :8443 — token gắn khoá gửi như bearer → bị từ chối profile=p1 reason=wrong_typ
+  D3 P2 — token bearer thường (không cnf, typ=Bearer) + proof hợp lệ profile=p2 reason=wrong_typ
+  E1 alice DELETE /orders/1 (proof đúng, nhưng employee không được xoá — BFLA) profile=p2 reason=role_not_allowed
+
+## Thời gian quyết định ở auth-svc (duration_ms, các request được cho qua ở P2)
+  n=6  min=1.612  median=1.910  max=2.159 ms (gồm kiểm JWT + kiểm proof + hỏi OPA; chưa phải benchmark — tuần 11)
+
+Kết quả: 31/31 PASS

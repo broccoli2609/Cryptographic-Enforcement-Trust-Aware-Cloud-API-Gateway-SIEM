@@ -1,4 +1,4 @@
-// Lệnh auth-svc: server gRPC ext_authz của gateway (profile P1, tuần 4).
+// Lệnh auth-svc: server gRPC ext_authz của gateway (profile P1 tuần 4–5, P2 tuần 6).
 //
 // Chạy server:            auth-svc
 // Kiểm sức khoẻ (Docker): auth-svc -healthcheck
@@ -10,8 +10,15 @@
 //	JWKS_URL      URL JWKS ghim cứng (không lấy từ token), ví dụ http://keycloak:8080/realms/topic09/protocol/openid-connect/certs
 //	AUDIENCE      aud bắt buộc, ví dụ topic09-api
 //	ALLOWED_ALGS  allow-list alg, phân cách bằng dấu phẩy, ví dụ RS256
+//	OPA_URL       URL decision của OPA (tuần 5), ví dụ http://opa:8181/v1/data/topic09/authz/decision
 //
-// Tuỳ chọn: LISTEN_ADDR (:9191), TOKEN_TYPE (Bearer), CLOCK_SKEW (30s), JWKS_TTL (5m).
+// Tuỳ chọn: LISTEN_ADDR (:9191), TOKEN_TYPE (Bearer), CLOCK_SKEW (30s), JWKS_TTL (5m),
+// OPA_TIMEOUT (250ms — phải nhỏ hơn timeout 0.5 s của ext_authz trong envoy.yaml, để auth-svc
+// kịp tự trả 503 có lý do rõ ràng trước khi Envoy cắt).
+//
+// DPoP cho P2 (tuần 6, RFC 9449): DPOP_TOKEN_TYPE (DPoP — claim typ của access token gắn khoá
+// mà Keycloak cấp), DPOP_ALLOWED_ALGS (ES256), DPOP_IAT_WINDOW (30s — quyết định 2026-10-03),
+// DPOP_REPLAY_CACHE_MAX (100000 mục; đầy thì từ chối).
 package main
 
 import (
@@ -23,6 +30,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,7 +42,9 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
 	"topic09-lab/gateway/auth-svc/internal/authz"
+	"topic09-lab/gateway/auth-svc/internal/dpop"
 	"topic09-lab/gateway/auth-svc/internal/jwtverify"
+	"topic09-lab/gateway/auth-svc/internal/policy"
 )
 
 type config struct {
@@ -46,6 +56,13 @@ type config struct {
 	TokenType   string
 	ClockSkew   time.Duration
 	JWKSTTL     time.Duration
+	OPAURL      string
+	OPATimeout  time.Duration
+	// DPoP (P2)
+	DPoPTokenType string
+	DPoPAlgs      []string
+	DPoPWindow    time.Duration
+	DPoPCacheMax  int
 }
 
 func main() {
@@ -86,6 +103,27 @@ func run(cfg config, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	// P2: cùng issuer, cùng JWKS cache, chỉ khác loại token (typ=DPoP). Hai verifier tách riêng để
+	// token bearer không lọt vào P2 và token gắn khoá không lọt vào P1.
+	dpopTokens, err := jwtverify.New(jwtverify.Config{
+		Issuer:      cfg.Issuer,
+		Audience:    cfg.Audience,
+		AllowedAlgs: cfg.AllowedAlgs,
+		TokenType:   cfg.DPoPTokenType,
+		ClockSkew:   cfg.ClockSkew,
+	}, cache)
+	if err != nil {
+		return err
+	}
+	replay := dpop.NewReplayCache(cfg.DPoPCacheMax)
+	proofs, err := dpop.New(dpop.Config{AllowedAlgs: cfg.DPoPAlgs, IATWindow: cfg.DPoPWindow}, replay)
+	if err != nil {
+		return err
+	}
+	pdp, err := policy.NewClient(cfg.OPAURL, cfg.OPATimeout)
+	if err != nil {
+		return err
+	}
 
 	// Làm nóng JWKS cache. Lỗi chỉ ghi log: auth-svc vẫn chạy, nhưng mọi request bị từ chối
 	// cho tới khi tải được JWKS (fail closed), và cache sẽ tự thử lại.
@@ -103,12 +141,15 @@ func run(cfg config, logger *slog.Logger) error {
 	}
 	// Giới hạn kích thước message: CheckRequest chứa header của request (Envoy giới hạn 16 KiB).
 	gs := grpc.NewServer(grpc.MaxRecvMsgSize(64<<10), grpc.ConnectionTimeout(5*time.Second))
-	authv3.RegisterAuthorizationServer(gs, &authz.Server{Verifier: verifier, Logger: logger})
+	authv3.RegisterAuthorizationServer(gs, &authz.Server{
+		Verifier: verifier, DPoPVerifier: dpopTokens, Proofs: proofs, Policy: pdp, Logger: logger,
+	})
 	hs := health.NewServer()
 	healthpb.RegisterHealthServer(gs, hs)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go replay.Run(ctx, 10*time.Second) // dọn jti đã hết cửa sổ iat
 	go func() {
 		<-ctx.Done()
 		logger.Info("shutting down")
@@ -124,7 +165,10 @@ func run(cfg config, logger *slog.Logger) error {
 
 	logger.Info("listening", "addr", cfg.Addr, "issuer", cfg.Issuer, "audience", cfg.Audience,
 		"allowed_algs", strings.Join(cfg.AllowedAlgs, ","), "token_type", cfg.TokenType,
-		"clock_skew", cfg.ClockSkew.String(), "jwks_ttl", cfg.JWKSTTL.String())
+		"clock_skew", cfg.ClockSkew.String(), "jwks_ttl", cfg.JWKSTTL.String(),
+		"opa_url", cfg.OPAURL, "opa_timeout", cfg.OPATimeout.String(),
+		"dpop_token_type", cfg.DPoPTokenType, "dpop_allowed_algs", strings.Join(cfg.DPoPAlgs, ","),
+		"dpop_iat_window", cfg.DPoPWindow.String(), "dpop_replay_cache_max", cfg.DPoPCacheMax)
 	if err := gs.Serve(lis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
 		return err
 	}
@@ -138,6 +182,14 @@ func loadConfig(addr string) (config, error) {
 		JWKSURL:   os.Getenv("JWKS_URL"),
 		Audience:  os.Getenv("AUDIENCE"),
 		TokenType: envOr("TOKEN_TYPE", "Bearer"),
+		OPAURL:    os.Getenv("OPA_URL"),
+		// P2 dùng loại token khác P1; trùng nhau thì không phân biệt được bearer với token gắn khoá.
+		DPoPTokenType: envOr("DPOP_TOKEN_TYPE", "DPoP"),
+	}
+	for _, a := range strings.Split(envOr("DPOP_ALLOWED_ALGS", "ES256"), ",") {
+		if a = strings.TrimSpace(a); a != "" {
+			cfg.DPoPAlgs = append(cfg.DPoPAlgs, a)
+		}
 	}
 	for _, a := range strings.Split(os.Getenv("ALLOWED_ALGS"), ",") {
 		if a = strings.TrimSpace(a); a != "" {
@@ -145,7 +197,7 @@ func loadConfig(addr string) (config, error) {
 		}
 	}
 	var missing []string
-	for name, v := range map[string]string{"OIDC_ISSUER": cfg.Issuer, "JWKS_URL": cfg.JWKSURL, "AUDIENCE": cfg.Audience} {
+	for name, v := range map[string]string{"OIDC_ISSUER": cfg.Issuer, "JWKS_URL": cfg.JWKSURL, "AUDIENCE": cfg.Audience, "OPA_URL": cfg.OPAURL} {
 		if v == "" {
 			missing = append(missing, name)
 		}
@@ -162,6 +214,21 @@ func loadConfig(addr string) (config, error) {
 	}
 	if cfg.JWKSTTL, err = time.ParseDuration(envOr("JWKS_TTL", "5m")); err != nil || cfg.JWKSTTL < 10*time.Second {
 		return cfg, errors.New("JWKS_TTL must be a duration >= 10s")
+	}
+	if cfg.OPATimeout, err = time.ParseDuration(envOr("OPA_TIMEOUT", "250ms")); err != nil ||
+		cfg.OPATimeout < 10*time.Millisecond || cfg.OPATimeout >= 500*time.Millisecond {
+		return cfg, errors.New("OPA_TIMEOUT must be a duration in [10ms, 500ms) — below Envoy ext_authz timeout")
+	}
+	if cfg.DPoPTokenType == cfg.TokenType {
+		return cfg, errors.New("DPOP_TOKEN_TYPE must differ from TOKEN_TYPE")
+	}
+	if cfg.DPoPWindow, err = time.ParseDuration(envOr("DPOP_IAT_WINDOW", "30s")); err != nil ||
+		cfg.DPoPWindow < time.Second || cfg.DPoPWindow > 5*time.Minute {
+		return cfg, errors.New("DPOP_IAT_WINDOW must be a duration in [1s, 5m]")
+	}
+	if cfg.DPoPCacheMax, err = strconv.Atoi(envOr("DPOP_REPLAY_CACHE_MAX", "100000")); err != nil ||
+		cfg.DPoPCacheMax < 100 || cfg.DPoPCacheMax > 10_000_000 {
+		return cfg, errors.New("DPOP_REPLAY_CACHE_MAX must be an integer in [100, 10000000]")
 	}
 	return cfg, nil
 }
