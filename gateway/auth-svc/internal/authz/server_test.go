@@ -11,6 +11,7 @@ import (
 	typev3 "github.com/envoyproxy/go-control-plane/envoy/type/v3"
 
 	"topic09-lab/gateway/auth-svc/internal/jwtverify"
+	"topic09-lab/gateway/auth-svc/internal/policy"
 )
 
 const goodToken = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhbGljZSJ9.c2lnbmF0dXJl"
@@ -20,19 +21,50 @@ type fakeVerifier struct{ reason jwtverify.Reason }
 
 func (f fakeVerifier) Verify(_ context.Context, tok string) (*jwtverify.Claims, error) {
 	if tok == goodToken {
-		return &jwtverify.Claims{Subject: "a6dd1608-sub", ClientID: "web-app", Alg: "RS256", Kid: "kid-1"}, nil
+		return &jwtverify.Claims{Subject: "a6dd1608-sub", ClientID: "web-app", Alg: "RS256", Kid: "kid-1",
+			Roles: []string{"employee"}, Dept: "sales", Tier: "standard"}, nil
 	}
 	return nil, &jwtverify.Error{Reason: f.reason, Alg: "HS256", Kid: "kid-1"}
 }
 
-func newServer(reason jwtverify.Reason, logs *bytes.Buffer) *Server {
-	return &Server{Verifier: fakeVerifier{reason: reason}, Logger: slog.New(slog.NewJSONHandler(logs, nil))}
+// fakePolicy thay OPA: ghi lại input nhận được, trả quyết định / lỗi cho sẵn.
+type fakePolicy struct {
+	dec   policy.Decision
+	err   error
+	calls int
+	got   policy.Input
 }
 
+func (f *fakePolicy) Decide(_ context.Context, in policy.Input) (policy.Decision, error) {
+	f.calls++
+	f.got = in
+	return f.dec, f.err
+}
+
+var opaAllow = policy.Decision{Allow: true, PolicyID: "topic09.authz", PolicyVersion: "1.0.0", Route: "orders.whoami", Reason: "ok", DecisionID: "opa-1"}
+
+func newServer(reason jwtverify.Reason, logs *bytes.Buffer) *Server {
+	return newServerWithPolicy(reason, logs, &fakePolicy{dec: opaAllow})
+}
+
+func newServerWithPolicy(reason jwtverify.Reason, logs *bytes.Buffer, p PolicyDecider) *Server {
+	return &Server{Verifier: fakeVerifier{reason: reason}, Policy: p, Logger: slog.New(slog.NewJSONHandler(logs, nil))}
+}
+
+// checkReq: request tới listener P1 (Envoy gắn context_extensions profile=p1).
 func checkReq(path string, headers map[string]string) *authv3.CheckRequest {
+	return checkReqProfile(ProfileP1, "GET", path, headers)
+}
+
+func checkReqProfile(profile, method, path string, headers map[string]string) *authv3.CheckRequest {
+	ext := map[string]string{}
+	if profile != "" {
+		ext["profile"] = profile
+	}
 	return &authv3.CheckRequest{Attributes: &authv3.AttributeContext{
+		ContextExtensions: ext,
 		Request: &authv3.AttributeContext_Request{Http: &authv3.AttributeContext_HttpRequest{
-			Method: "GET", Path: path, Headers: headers,
+			Method: method, Scheme: "https", Host: "localhost:8445", Path: path, Headers: headers,
 		}},
 	}}
 }
@@ -52,8 +84,8 @@ func TestCheckAllowsValidTokenAndSetsIdentity(t *testing.T) {
 		ok.GetHeaders()[0].GetHeader().GetValue() != "a6dd1608-sub" {
 		t.Fatalf("phải đặt x-user = sub, nhận %v", ok.GetHeaders())
 	}
-	if len(ok.GetHeadersToRemove()) != 1 || ok.GetHeadersToRemove()[0] != "authorization" {
-		t.Fatalf("phải xoá Authorization trước khi vào backend, nhận %v", ok.GetHeadersToRemove())
+	if rm := ok.GetHeadersToRemove(); len(rm) != 2 || rm[0] != "authorization" || rm[1] != "dpop" {
+		t.Fatalf("phải xoá Authorization và DPoP trước khi vào backend, nhận %v", rm)
 	}
 }
 

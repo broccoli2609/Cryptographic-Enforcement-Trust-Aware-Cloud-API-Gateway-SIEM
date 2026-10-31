@@ -1,0 +1,183 @@
+# auth-svc — unit test (go test -count=1 -v) — 2026-10-31T02:47:16+00:00
+# go version go1.27.1 linux/amd64
+# gofmt -l: 0 file lệch định dạng; go vet: 0 cảnh báo
+# Tổng: 173 PASS (test + subtest), 0 FAIL
+
+?   	topic09-lab/gateway/auth-svc/cmd/auth-svc	[no test files]
+--- PASS: TestP2AllowsBoundTokenWithValidProof
+--- PASS: TestP2Rejects
+    --- PASS: TestP2Rejects/token_DPoP_gửi_bằng_scheme_Bearer
+    --- PASS: TestP2Rejects/không_có_Authorization
+    --- PASS: TestP2Rejects/token_bearer_thường_(typ=Bearer)_với_scheme_DPoP
+    --- PASS: TestP2Rejects/token_typ=DPoP_nhưng_không_có_cnf.jkt
+    --- PASS: TestP2Rejects/proof_replay
+    --- PASS: TestP2Rejects/proof_ký_bằng_khoá_khác
+--- PASS: TestP2LogsBothThumbprintsOnKeyMismatch
+--- PASS: TestP2CacheFullIs503
+--- PASS: TestP2DoesNotCallPolicyWhenProofInvalid
+--- PASS: TestP2FailsClosedWhenDPoPNotConfigured
+--- PASS: TestP1RejectsDPoPBoundTokenAsBearer
+--- PASS: TestP1RejectsDPoPScheme
+--- PASS: TestCheckFailsClosedOnMissingOrUnknownProfile
+--- PASS: TestRequestURL
+--- PASS: TestCheckSendsVerifiedClaimsToPolicy
+--- PASS: TestCheckIgnoresClientIdentityHeadersForPolicy
+--- PASS: TestCheckDeniesWith403WhenPolicyDenies
+--- PASS: TestCheckFailsClosedWhenPolicyErrors
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/policy_unavailable
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/policy_bad_response
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/policy_undefined
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/lạ
+--- PASS: TestCheckFailsClosedWhenPolicyNotConfigured
+--- PASS: TestCheckDoesNotCallPolicyForInvalidToken
+--- PASS: TestPathOnly
+--- PASS: TestCheckAllowsValidTokenAndSetsIdentity
+--- PASS: TestCheckDeniesWhenNoBearerToken
+    --- PASS: TestCheckDeniesWhenNoBearerToken/không_có_Authorization
+    --- PASS: TestCheckDeniesWhenNoBearerToken/scheme_Basic
+    --- PASS: TestCheckDeniesWhenNoBearerToken/Bearer_rỗng
+    --- PASS: TestCheckDeniesWhenNoBearerToken/hai_header_Authorization_gộp
+--- PASS: TestCheckDeniesInvalidTokenWith401AndWWWAuthenticate
+--- PASS: TestCheckFailsClosedWhenJWKSUnavailable
+--- PASS: TestDecisionLogNeverContainsTokenOrRealPath
+--- PASS: TestRouteGroup
+ok  	topic09-lab/gateway/auth-svc/internal/authz	0.014s
+--- PASS: TestVerifyAcceptsValidProofs
+    --- PASS: TestVerifyAcceptsValidProofs/ES256
+    --- PASS: TestVerifyAcceptsValidProofs/EdDSA
+    --- PASS: TestVerifyAcceptsValidProofs/RS256
+--- PASS: TestVerifyRejects
+    --- PASS: TestVerifyRejects/(1)_không_có_header_DPoP
+    --- PASS: TestVerifyRejects/(1)_hai_header_DPoP_(Envoy_gộp_bằng_dấu_phẩy)
+    --- PASS: TestVerifyRejects/proof_quá_lớn
+    --- PASS: TestVerifyRejects/(2)_không_phải_JWT_3_phần
+    --- PASS: TestVerifyRejects/(2)_header_không_phải_base64url
+    --- PASS: TestVerifyRejects/(4)_typ_=_JWT
+    --- PASS: TestVerifyRejects/(4)_thiếu_typ
+    --- PASS: TestVerifyRejects/(5)_alg_none,_không_chữ_ký
+    --- PASS: TestVerifyRejects/(5)_alg_HS256_(đối_xứng)
+    --- PASS: TestVerifyRejects/(5)_RS256_ngoài_allow-list
+    --- PASS: TestVerifyRejects/crit_lạ
+    --- PASS: TestVerifyRejects/(2)_thiếu_chữ_ký
+    --- PASS: TestVerifyRejects/(7)_thiếu_jwk
+    --- PASS: TestVerifyRejects/(7)_jwk_chứa_khoá_riêng_d
+    --- PASS: TestVerifyRejects/(7)_jwk_RSA_cho_alg_ES256
+    --- PASS: TestVerifyRejects/(7)_jwk_crv_P-384_cho_ES256
+    --- PASS: TestVerifyRejects/(7)_điểm_không_nằm_trên_P-256_(invalid_curve)
+    --- PASS: TestVerifyRejects/(7)_x_có_padding_'='
+    --- PASS: TestVerifyRejects/(12)_token_đánh_cắp_+_proof_ký_bằng_khoá_của_kẻ_tấn_công
+    --- PASS: TestVerifyRejects/(12)_token_không_gắn_khoá_(cnf.jkt_rỗng)
+    --- PASS: TestVerifyRejects/(6)_chữ_ký_bị_lật_1_bit
+    --- PASS: TestVerifyRejects/(6)_mang_jwk_của_chủ_token_nhưng_ký_bằng_khoá_kẻ_tấn_công
+    --- PASS: TestVerifyRejects/(3)_thiếu_jti
+    --- PASS: TestVerifyRejects/(3)_thiếu_htm
+    --- PASS: TestVerifyRejects/(3)_thiếu_htu
+    --- PASS: TestVerifyRejects/(3)_thiếu_iat
+    --- PASS: TestVerifyRejects/(3)_thiếu_ath_khi_có_access_token
+    --- PASS: TestVerifyRejects/iat_là_chuỗi
+    --- PASS: TestVerifyRejects/jti_quá_dài
+    --- PASS: TestVerifyRejects/(8)_htm_POST_cho_request_GET
+    --- PASS: TestVerifyRejects/(8)_htm_chữ_thường
+    --- PASS: TestVerifyRejects/(9)_htu_khác_path
+    --- PASS: TestVerifyRejects/(9)_htu_khác_host
+    --- PASS: TestVerifyRejects/(9)_htu_http_thay_vì_https
+    --- PASS: TestVerifyRejects/(9)_htu_khác_cổng_(proof_cho_P1_đem_sang_P2)
+    --- PASS: TestVerifyRejects/(9)_htu_tương_đối
+    --- PASS: TestVerifyRejects/(11)_iat_cũ_31_s
+    --- PASS: TestVerifyRejects/(11)_iat_tương_lai_31_s
+    --- PASS: TestVerifyRejects/(12)_ath_của_token_khác
+--- PASS: TestVerifyRejectsSmallRSAKey
+--- PASS: TestVerifyAcceptsIATInsideWindow
+--- PASS: TestVerifyNormalizesHTU
+--- PASS: TestVerifyAcceptsTypCaseInsensitive
+--- PASS: TestVerifyRejectsReplay
+--- PASS: TestVerifyDoesNotStoreJTIOfFailedProof
+--- PASS: TestVerifySameJTIDifferentKeys
+--- PASS: TestVerifyOldProofRejectedByIATAfterWindow
+--- PASS: TestVerifyCacheFullRejects
+--- PASS: TestNewRejectsDangerousConfig
+--- PASS: TestThumbprintRFC7638Example
+--- PASS: TestReplayCacheDetectsReuse
+--- PASS: TestReplayCacheForgetsExpiredEntries
+--- PASS: TestReplayCacheFullRejectsAndKeepsUnexpired
+--- PASS: TestReplayCacheFullSweepsExpiredFirst
+--- PASS: TestReplayCacheConcurrentSameKey
+ok  	topic09-lab/gateway/auth-svc/internal/dpop	0.353s
+--- PASS: TestParseJWKSKeepsOnlySigningKeys
+--- PASS: TestParseJWKSRejectsWeakOrInvalidKeys
+    --- PASS: TestParseJWKSRejectsWeakOrInvalidKeys/RSA_1024_bit
+    --- PASS: TestParseJWKSRejectsWeakOrInvalidKeys/điểm_EC_ngoài_đường_cong
+    --- PASS: TestParseJWKSRejectsWeakOrInvalidKeys/không_có_kid
+--- PASS: TestJWKSCacheServesFromCacheWithinTTL
+--- PASS: TestJWKSCacheRefetchesAfterTTL
+--- PASS: TestJWKSCacheRefetchesOnUnknownKidForKeyRotation
+--- PASS: TestJWKSCacheRateLimitsRefetchForUnknownKids
+--- PASS: TestJWKSCacheFailsClosedWhenNeverFetched
+--- PASS: TestJWKSCacheStaleGraceThenFailsClosed
+--- PASS: TestJWKSCacheDoesNotFollowRedirects
+--- PASS: TestVerifyAcceptsValidKeycloakAccessToken
+--- PASS: TestVerifyAcceptsEdgeCasesWithinRules
+    --- PASS: TestVerifyAcceptsEdgeCasesWithinRules/aud_là_mảng_có_chứa_topic09-api
+    --- PASS: TestVerifyAcceptsEdgeCasesWithinRules/exp_vừa_qua_10_s_(trong_lệch_30_s)
+    --- PASS: TestVerifyAcceptsEdgeCasesWithinRules/nbf_sớm_hơn_10_s_nữa_(trong_lệch_30_s)
+--- PASS: TestVerifyDPoPBoundTokenByProfile
+--- PASS: TestVerifyBearerTokenHasNoCnf
+--- PASS: TestVerifyAcceptsES256WhenAllowListed
+--- PASS: TestVerifyRejectsBadTokens
+    --- PASS: TestVerifyRejectsBadTokens/alg_none_có_chữ_ký_giả
+    --- PASS: TestVerifyRejectsBadTokens/alg_none_bỏ_hẳn_chữ_ký
+    --- PASS: TestVerifyRejectsBadTokens/alg_confusion_HS256_ký_bằng_public_key_PEM_của_realm
+    --- PASS: TestVerifyRejectsBadTokens/ES256_chữ_ký_đúng_nhưng_ngoài_allow-list_RS256
+    --- PASS: TestVerifyRejectsBadTokens/alg_viết_thường_rs256
+    --- PASS: TestVerifyRejectsBadTokens/header_crit_không_hỗ_trợ
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_kid
+    --- PASS: TestVerifyRejectsBadTokens/kid_không_có_trong_JWKS
+    --- PASS: TestVerifyRejectsBadTokens/RS256_nhưng_kid_trỏ_tới_khoá_EC_(JWK_có_alg_ES256)
+    --- PASS: TestVerifyRejectsBadTokens/RS256_nhưng_kid_trỏ_tới_khoá_EC_(JWK_không_ghi_alg)
+    --- PASS: TestVerifyRejectsBadTokens/jku_trỏ_tới_JWKS_của_kẻ_tấn_công_bị_bỏ_qua
+    --- PASS: TestVerifyRejectsBadTokens/jwk_nhúng_trong_header_bị_bỏ_qua
+    --- PASS: TestVerifyRejectsBadTokens/ký_bằng_khoá_RSA_của_kẻ_tấn_công
+    --- PASS: TestVerifyRejectsBadTokens/payload_bị_sửa_sau_khi_ký_(tự_nâng_role)
+    --- PASS: TestVerifyRejectsBadTokens/chữ_ký_bị_lật_1_bit
+    --- PASS: TestVerifyRejectsBadTokens/sai_iss_(realm_master)
+    --- PASS: TestVerifyRejectsBadTokens/sai_aud_(account)
+    --- PASS: TestVerifyRejectsBadTokens/aud_là_mảng_không_có_topic09-api
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_aud
+    --- PASS: TestVerifyRejectsBadTokens/hết_hạn_quá_lệch_30_s
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_exp
+    --- PASS: TestVerifyRejectsBadTokens/nbf_ở_tương_lai_quá_lệch_30_s
+    --- PASS: TestVerifyRejectsBadTokens/iat_ở_tương_lai_quá_lệch_30_s
+    --- PASS: TestVerifyRejectsBadTokens/ID_token_(typ=ID)_thay_access_token
+    --- PASS: TestVerifyRejectsBadTokens/refresh_token_(typ=Refresh)_thay_access_token
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_typ
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_sub
+    --- PASS: TestVerifyRejectsBadTokens/chỉ_có_2_phần
+    --- PASS: TestVerifyRejectsBadTokens/header_có_padding_=_(không_phải_base64url_chặt)
+    --- PASS: TestVerifyRejectsBadTokens/header_không_phải_JSON
+    --- PASS: TestVerifyRejectsBadTokens/token_dài_hơn_8_KiB
+--- PASS: TestVerifyRejectsES256WithWrongSignatureLength
+--- PASS: TestVerifyRejectsES256SignedByAttacker
+--- PASS: TestVerifyFailsClosedWhenJWKSUnavailable
+--- PASS: TestNewRejectsDangerousAllowList
+--- PASS: TestErrorKeepsHeaderValuesShortForLogs
+ok  	topic09-lab/gateway/auth-svc/internal/jwtverify	0.400s
+--- PASS: TestDecideSendsInputAndParsesAllow
+--- PASS: TestDecideParsesDeny
+--- PASS: TestDecideOmitsEmptyAttributesAndSendsEmptyRoles
+--- PASS: TestDecideFailsClosed
+    --- PASS: TestDecideFailsClosed/OPA_trả_{}_(chưa_nạp_policy_/_sai_đường_dẫn)
+    --- PASS: TestDecideFailsClosed/result_null
+    --- PASS: TestDecideFailsClosed/result_thiếu_allow
+    --- PASS: TestDecideFailsClosed/allow_là_chuỗi_"true"
+    --- PASS: TestDecideFailsClosed/result_là_true_trần_(policy_trả_boolean,_không_có_metadata)
+    --- PASS: TestDecideFailsClosed/thiếu_policy_version
+    --- PASS: TestDecideFailsClosed/JSON_hỏng
+    --- PASS: TestDecideFailsClosed/HTTP_500
+    --- PASS: TestDecideFailsClosed/HTTP_400_(input_bị_OPA_từ_chối)
+    --- PASS: TestDecideFailsClosed/redirect_sang_chỗ_khác_(không_theo)
+    --- PASS: TestDecideFailsClosed/body_quá_lớn
+    --- PASS: TestDecideFailsClosed/OPA_treo_quá_timeout
+--- PASS: TestDecideFailsClosedWhenOPADown
+--- PASS: TestNewClientRejectsBadConfig
+--- PASS: TestClientIgnoresProxyEnv
+ok  	topic09-lab/gateway/auth-svc/internal/policy	2.035s

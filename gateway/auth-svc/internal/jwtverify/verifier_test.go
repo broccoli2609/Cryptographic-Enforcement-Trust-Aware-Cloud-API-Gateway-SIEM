@@ -179,6 +179,35 @@ func TestVerifyAcceptsEdgeCasesWithinRules(t *testing.T) {
 	}
 }
 
+// Token DPoP của Keycloak: typ = "DPoP" trong payload + cnf.jkt (tuần 6). Bộ kiểm cho P2
+// (TokenType "DPoP") đọc được jkt; bộ kiểm cho P1 (TokenType "Bearer") từ chối nó.
+func TestVerifyDPoPBoundTokenByProfile(t *testing.T) {
+	testKeys(t)
+	claims := with(with(goodClaims(), "typ", "DPoP"), "cnf", map[string]any{"jkt": "HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM", "kc-jkt-type": "DPoP"})
+	tok := makeToken(hdrRS256(), claims, rs256(realmRSA))
+
+	p2, err := New(Config{Issuer: testIss, Audience: testAud, AllowedAlgs: []string{"RS256"}, TokenType: "DPoP", ClockSkew: 30 * time.Second}, realmJWKS())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2.now = func() time.Time { return fixedNow }
+	c, err := p2.Verify(context.Background(), tok)
+	if err != nil || c.CnfJKT != "HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM" {
+		t.Fatalf("P2 phải đọc được cnf.jkt: claims=%+v err=%v", c, err)
+	}
+
+	_, err = newVerifier(t, []string{"RS256"}, realmJWKS()).Verify(context.Background(), tok)
+	assertReason(t, err, ReasonWrongType)
+}
+
+func TestVerifyBearerTokenHasNoCnf(t *testing.T) {
+	testKeys(t)
+	c, err := newVerifier(t, []string{"RS256"}, realmJWKS()).Verify(context.Background(), makeToken(hdrRS256(), goodClaims(), rs256(realmRSA)))
+	if err != nil || c.CnfJKT != "" {
+		t.Fatalf("token bearer không có cnf: %+v %v", c, err)
+	}
+}
+
 func TestVerifyAcceptsES256WhenAllowListed(t *testing.T) {
 	testKeys(t)
 	v := newVerifier(t, []string{"ES256"}, realmJWKS())

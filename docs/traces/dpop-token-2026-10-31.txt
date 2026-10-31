@@ -1,0 +1,78 @@
+# Authorization Code + PKCE + DPoP — user alice, client web-app-dpop — 2026-10-31T02:30:20+00:00
+# Issuer: http://localhost:8080/realms/topic09
+
+## Bước 1: client sinh cặp khoá DPoP (EC P-256) — khoá riêng không bao giờ rời client
+jwk công khai = {"crv":"P-256","kty":"EC","x":"wpY0W5HhwFOzICwlvivUYyBlVyKAEiVv05KbULNtkyE","y":"duHwN5TE4nJzAjnNvTQe8JNDxhWw2y1x3GOLEJBFqXA"}
+jkt (RFC 7638) = BASE64URL(SHA-256(jwk)) = HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM
+
+## Bước 2–5: PKCE S256 + đăng nhập như pkce-login.sh (state, iss đã kiểm) → nhận code
+code = <code: 98 ký tự, sha256=d42e63116bfd…>
+
+## Bước 6: POST http://localhost:8080/realms/topic09/protocol/openid-connect/token kèm header DPoP
+> grant_type=authorization_code, client_id=web-app-dpop, code=<che>, code_verifier=<che>
+> DPoP: <dpop_proof: 491 ký tự, sha256=252df5604960…>
+    header : {"typ": "dpop+jwt", "alg": "ES256", "jwk": {"crv": "P-256", "kty": "EC", "x": "wpY0W5HhwFOzICwlvivUYyBlVyKAEiVv05KbULNtkyE", "y": "duHwN5TE4nJzAjnNvTQe8JNDxhWw2y1x3GOLEJBFqXA"}}
+    payload: {
+      "jti": "n3lE8ghWH6zxuhZUFynTZg",
+      "htm": "POST",
+      "htu": "http://localhost:8080/realms/topic09/protocol/openid-connect/token",
+      "iat": 1793413820
+    }
+< 200 OK  token_type=DPoP  expires_in=300
+  [PASS] token_type = DPoP (không phải Bearer)
+
+## Bước 7: access token gắn với khoá (claim cnf.jkt)
+access_token = <access_token: 1289 ký tự, sha256=b83a74f54954…>
+    header : {"alg": "RS256", "typ": "JWT", "kid": "Plx0cWlevKnBlzy5dCcf7M0PMzmzLi2Bfmfrtlx-3FA"}
+    payload: {
+      "exp": 1793414120,
+      "iat": 1793413820,
+      "auth_time": 1793413820,
+      "jti": "onrtac:65691a2a-d83b-e949-e79a-50ff60449108",
+      "iss": "http://localhost:8080/realms/topic09",
+      "aud": "topic09-api",
+      "sub": "a6dd1608-1da4-43c5-bdcb-e80f368478f6",
+      "typ": "DPoP",
+      "azp": "web-app-dpop",
+      "sid": "YDFK52a0JeLbmEWXPqx-G1l3",
+      "acr": "1",
+      "realm_access": {
+        "roles": [
+          "employee"
+        ]
+      },
+      "cnf": {
+        "jkt": "HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM",
+        "kc-jkt-type": "DPoP"
+      },
+      "scope": "openid email profile",
+      "email_verified": true,
+      "tier": "standard",
+      "name": "Alice Nguyen",
+      "preferred_username": "alice",
+      "dept": "sales",
+      "given_name": "Alice",
+      "family_name": "Nguyen",
+      "email": "alice@example.com"
+    }
+  [PASS] cnf.jkt trong token = jkt của khoá client (HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM)
+
+## Ca sai ở token endpoint — Keycloak phải từ chối
+1. Đổi code KHÔNG kèm DPoP proof (client bắt buộc DPoP: dpop.bound.access.tokens=true)
+  [PASS] HTTP 400 — error=invalid_request (DPoP proof is missing)
+2. Proof có htu sai (ký cho URL khác)
+  [PASS] HTTP 400 — error=invalid_request (DPoP HTTP URL mismatch)
+3. Proof cũ (iat = 10 phút trước)
+  [PASS] HTTP 400 — error=invalid_request (DPoP proof is not active)
+4. Proof typ=JWT (không phải dpop+jwt)
+  [PASS] HTTP 400 — error=invalid_request (Invalid or missing type in DPoP header: JWT)
+
+## Refresh token của client public cũng gắn với khoá (RFC 9449 §5)
+5. Kẻ trộm refresh token dùng khoá của mình
+  [PASS] HTTP 400 — error=invalid_grant (DPoP confirmation doesn't match DPoP proof)
+6. Refresh không kèm proof
+  [PASS] HTTP 400 — error=invalid_request (DPoP proof is missing)
+7. Chủ thật refresh bằng đúng khoá → được token mới, vẫn cùng jkt
+  [PASS] HTTP 200, token mới có cnf.jkt = HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM
+
+Kết quả ca sai + kiểm: 0 FAIL

@@ -1,0 +1,30 @@
+# Gateway https://localhost:8443 — kiểm từ đầu đến cuối — 2026-10-31T02:46:51+00:00
+# Token thật: alice <access_token: 1177 ký tự, sha256=c35041413a91…>, batch-worker <access_token: 958 ký tự, sha256=56a8cfaa5fda…>
+
+## A. Ca hợp lệ (phải 200)
+  [PASS] A1 alice (Auth Code + PKCE) GET /orders/whoami → HTTP 200  {"service":"orders-api","user":"a6dd1608-1da4-43c5-bdcb-e80f368478f6"} 
+  [PASS] A1' backend nhận X-User = sub của alice
+  [PASS] A2 alice GET /profile/whoami → HTTP 200  {"service":"profile-api","user":"a6dd1608-1da4-43c5-bdcb-e80f368478f6"} 
+  [PASS] A3 batch-worker (Client Credentials + private_key_jwt) GET /orders/whoami → HTTP 200  {"service":"orders-api","user":"0ea21a2c-1308-44b7-ab08-2712b75ed59b"} 
+
+## B. Token hỏng, giả mạo hoặc sai loại (phải 401 — T2, SR-02)
+  [PASS] B1 không có token → HTTP 401  Jwt is missing
+  [PASS] B2 chữ ký bị lật 1 bit → HTTP 401  Jwt verification fails
+  [PASS] B3 payload sửa role=hr,manager + tier=premium, giữ chữ ký cũ → HTTP 401  Jwt verification fails
+  [PASS] B4 alg=none, không chữ ký → HTTP 401  Jwt is not in the form of Header.Payload.Signature with two dots and 3 sections
+  [PASS] B5 alg confusion: HS256 ký bằng chứng chỉ công khai của realm → HTTP 401  Jwks doesn't have key to match kid or alg from Jwt
+  [PASS] B6 gửi ID token thay access token (typ=ID, aud=web-app) → HTTP 403  Audiences in Jwt are not allowed
+  [PASS] B7 gửi refresh token thay access token (typ=Refresh) → HTTP 403  Audiences in Jwt are not allowed
+
+## C. Header danh tính, host, đường dẫn (T5, luật 5)
+  [PASS] C1 token alice + X-User: admin tự gửi → backend thấy sub thật, header giả đã bị xoá
+  [PASS] C2 không token + X-User: admin → không vào được backend → HTTP 401  Jwt is missing
+  [PASS] C3 header có gạch dưới (x_user) bị từ chối → HTTP 400  Bad Request
+  [PASS] C4 đường dẫn ngoài allow-list (/admin) → HTTP 404  
+  [PASS] C5 Host lạ (evil.example) → HTTP 404  
+
+## D. Không đi vòng qua gateway (T5, SR-01)
+  [PASS] D backend cổng 8081 KHÔNG gọi thẳng được từ host
+  [PASS] D backend cổng 8082 KHÔNG gọi thẳng được từ host
+
+Kết quả: 18/18 PASS

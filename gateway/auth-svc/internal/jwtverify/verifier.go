@@ -92,6 +92,9 @@ type Claims struct {
 	Tier      string
 	Alg       string // alg trong header (đã qua allow-list)
 	Kid       string
+	// CnfJKT là cnf.jkt (RFC 9449 §6.1): thumbprint khoá DPoP mà token được gắn vào. Rỗng = token
+	// bearer thường. P2 bắt buộc có; P1 thấy có thì từ chối (chống hạ cấp, RFC 9449 §7.2).
+	CnfJKT string
 }
 
 // Verifier kiểm token của một issuer.
@@ -147,6 +150,9 @@ type payload struct {
 	RealmAccess struct {
 		Roles []string `json:"roles"`
 	} `json:"realm_access"`
+	Cnf struct {
+		JKT string `json:"jkt"`
+	} `json:"cnf"`
 }
 
 // Verify kiểm token; trả Claims khi MỌI bước đều qua, ngược lại trả *Error.
@@ -273,7 +279,7 @@ func (v *Verifier) Verify(ctx context.Context, token string) (*Claims, error) {
 		ExpiresAt: exp, NotBefore: nbf, IssuedAt: iat,
 		ID: p.Jti, Type: p.Typ, ClientID: p.Azp, Username: p.Username,
 		Roles: p.RealmAccess.Roles, Dept: p.Dept, Tier: p.Tier,
-		Alg: h.Alg, Kid: h.Kid,
+		Alg: h.Alg, Kid: h.Kid, CnfJKT: clip(p.Cnf.JKT, 64),
 	}, nil
 }
 

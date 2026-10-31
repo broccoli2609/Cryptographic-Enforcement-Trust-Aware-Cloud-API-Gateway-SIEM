@@ -1,4 +1,4 @@
-# Lab Topic 09 — tuần 4: Keycloak (realm topic09) + Envoy (TLS 1.3, P1 :8443 / P0 :8444) + auth-svc + 2 backend.
+# Lab Topic 09 — tuần 6: Keycloak (realm topic09) + Envoy (TLS 1.3, P1 :8443 / P0 :8444 / P2 :8445) + auth-svc + OPA + 2 backend.
 # Chạy:  cp .env.example .env  (rồi đổi mật khẩu)  →  docker compose up -d --build
 name: topic09-lab
 
@@ -92,9 +92,17 @@ services:
       TOKEN_TYPE: Bearer                         # claim typ của access token Keycloak
       CLOCK_SKEW: 30s
       JWKS_TTL: 5m
-    # authz: chỉ Envoy gọi được (TB Envoy → auth-svc); identity: lấy JWKS (TB2a).
-    # KHÔNG có "ports" — host không gọi thẳng auth-svc.
-    networks: [authz, identity]
+      # Tuần 5: PDP. URL ghi cứng như JWKS_URL; timeout < 0.5 s của ext_authz trong envoy.yaml.
+      OPA_URL: http://opa:8181/v1/data/topic09/authz/decision
+      OPA_TIMEOUT: 250ms
+      # Tuần 6: DPoP cho P2 (RFC 9449). Access token gắn khoá của Keycloak có claim typ=DPoP.
+      DPOP_TOKEN_TYPE: DPoP
+      DPOP_ALLOWED_ALGS: ES256
+      DPOP_IAT_WINDOW: 30s                       # quyết định 2026-10-03
+      DPOP_REPLAY_CACHE_MAX: "100000"            # đầy thì từ chối, không xoá mục còn hạn (T10)
+    # authz: chỉ Envoy gọi được (TB Envoy → auth-svc); identity: lấy JWKS (TB2a);
+    # policy: hỏi OPA (TB2b). KHÔNG có "ports" — host không gọi thẳng auth-svc.
+    networks: [authz, identity, policy]
     read_only: true
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
@@ -106,6 +114,45 @@ services:
       start_period: 5s
     depends_on:
       keycloak: { condition: service_healthy }
+      opa: { condition: service_healthy }
+
+  # OPA — PDP (Policy Decision Point), tuần 5. auth-svc hỏi OPA sau khi kiểm token.
+  # REST API của OPA mặc định KHÔNG xác thực, nên bảo vệ bằng vị trí mạng (quyết định 2026-10-03):
+  # không "ports", chỉ ở mạng "policy" — mạng mà chỉ auth-svc dùng chung. Envoy, backend,
+  # Keycloak không gọi được OPA, nên không ai khác hỏi hay đổi được policy qua API (T8).
+  opa:
+    image: openpolicyagent/opa:1.21.4-static     # ghim phiên bản; image distroless, chạy uid 1000
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181                      # OPA 1.x mặc định chỉ nghe localhost
+      - --log-format=json
+      - --disable-telemetry                      # không gọi ra ngoài kiểm phiên bản
+      # Decision log: mỗi quyết định một dòng JSON ra stdout (tuần 8 Vector gom về SIEM).
+      # policy/log_mask.rego xoá input.path trước khi ghi (SR-10).
+      - --set=decision_logs.console=true
+      - --ignore=*_test.rego                     # file test chỉ dùng cho "opa test", không nạp vào server
+      - /policy
+    volumes:
+      # Policy chỉ đọc: muốn đổi phải sửa file trong git rồi restart (T8 — policy compromise).
+      - ./policy:/policy:ro
+    networks: [policy]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      # Image không có shell/curl → dùng chính binary opa: http.send gọi /health; biểu thức
+      # so sánh sai hoặc lỗi kết nối thì "opa eval --fail" thoát mã khác 0.
+      test:
+        - CMD
+        - /opa
+        - eval
+        - --fail
+        - 'http.send({"method": "GET", "url": "http://127.0.0.1:8181/health", "timeout": "2s"}).status_code == 200'
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   envoy:
     image: envoyproxy/envoy:distroless-v1.39.4   # ghim phiên bản (quyết định 2026-10-17)
@@ -114,6 +161,7 @@ services:
     ports:
       - "127.0.0.1:8443:8443"                    # P1 — cổng vào chính tới API, chỉ trên localhost
       - "127.0.0.1:8444:8444"                    # P0 — baseline chỉ jwt_authn, để so sánh (tuần 11)
+      - "127.0.0.1:8445:8445"                    # P2 — P1 + DPoP (tuần 6)
     volumes:
       - type: bind
         source: ./gateway/envoy.yaml
@@ -150,7 +198,10 @@ networks:
   identity:
     name: topic09-identity
   authz:
-    name: topic09-authz                          # Envoy ↔ auth-svc; tuần 5 OPA dùng mạng riêng với auth-svc
+    name: topic09-authz                          # Envoy ↔ auth-svc
+    internal: true
+  policy:
+    name: topic09-policy                         # auth-svc ↔ OPA (TB2b) — chỉ hai service này
     internal: true
   backend:
     name: topic09-backend

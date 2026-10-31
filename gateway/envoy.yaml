@@ -1,8 +1,11 @@
 # Envoy — PEP (Policy Enforcement Point) của lab Topic 09.
 #
-# Hai listener, cùng TLS, cùng route, chỉ khác chuỗi filter (để so sánh profile ở tuần 11):
-#   :8443  P1 = TLS 1.3 → header_mutation → jwt_authn → ext_authz (auth-svc: JWT chặt) → router
-#   :8444  P0 = TLS 1.3 → header_mutation → jwt_authn → router          (baseline, tuần 4 T5)
+# Ba listener, cùng TLS, cùng danh sách route, chỉ khác chuỗi filter (để so sánh profile ở tuần 11):
+#   :8443  P1 = TLS 1.3 → header_mutation → jwt_authn (Bearer) → ext_authz (auth-svc: JWT chặt + OPA) → router
+#   :8444  P0 = TLS 1.3 → header_mutation → jwt_authn (Bearer) → router          (baseline, tuần 4 T5)
+#   :8445  P2 = TLS 1.3 → header_mutation → jwt_authn (DPoP)   → ext_authz (P1 + kiểm DPoP proof) → router (tuần 6)
+# auth-svc biết request thuộc profile nào nhờ context_extensions "profile" mà MỖI route config
+# tự gắn — client không đặt được giá trị này.
 #
 # Thứ tự filter = thứ tự bảo vệ. Các khối dùng chung khai báo một lần bằng YAML anchor (&tên)
 # và dùng lại bằng alias (*tên).
@@ -47,6 +50,9 @@ static_resources:
                 server_name: topic09-gateway
                 use_remote_address: true            # Envoy là điểm vào: IP client lấy từ kết nối, không tin X-Forwarded-For
                 preserve_external_request_id: false # không tin X-Request-Id client gửi; Envoy tự sinh UUID
+                # Trả lại X-Request-Id (UUID ngẫu nhiên, không chứa gì nhạy cảm) cho client: client
+                # báo lỗi kèm mã này, người vận hành tìm đúng dòng log Envoy/auth-svc/OPA/backend (tuần 5).
+                always_set_request_id_in_response: true
                 max_request_headers_kb: 16          # khớp MaxHeaderBytes 16 KiB của backend (T10)
                 request_headers_timeout: 5s
                 stream_idle_timeout: 30s
@@ -80,13 +86,14 @@ static_resources:
                           duration_ms: "%DURATION%"
                           tls_version: "%DOWNSTREAM_TLS_VERSION%"
                           client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
-                route_config: &routes
-                  name: api_routes
+                route_config:
+                  name: api_routes_p1
                   virtual_hosts:
                     - name: api
-                      # Chỉ nhận đúng tên host của gateway; Host lạ → 404 (chống Host header injection).
-                      domains: ["localhost:8443", "127.0.0.1:8443", "localhost:8444", "127.0.0.1:8444"]
-                      routes:
+                      # Chỉ nhận đúng tên host của listener này; Host lạ → 404 (chống Host header injection).
+                      # P2 cũng dựa vào điều này: htu trong DPoP proof được so với Host đã qua bộ lọc này.
+                      domains: ["localhost:8443", "127.0.0.1:8443"]
+                      routes: &api_route_list
                         - name: orders
                           match: { path_separated_prefix: /orders }   # /orders và /orders/..., không khớp /ordersX
                           route: { cluster: orders_api, timeout: 5s }
@@ -94,6 +101,11 @@ static_resources:
                           match: { path_separated_prefix: /profile }
                           route: { cluster: profile_api, timeout: 5s }
                       # Đường dẫn khác: Envoy trả 404, không chuyển vào backend nào.
+                      typed_per_filter_config:
+                        envoy.filters.http.ext_authz:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                          check_settings:
+                            context_extensions: { profile: p1 }
                 http_filters:
                   # (1) Luật 5 / RFC 9700 §4.13: xoá mọi header danh tính client tự gửi, TRƯỚC mọi
                   # filter khác. Chỉ gateway được đặt các header này sau khi kiểm token.
@@ -132,10 +144,11 @@ static_resources:
                       rules:
                         - match: { prefix: / }
                           requires: { provider_name: keycloak }
-                  # (3) P1: auth-svc kiểm JWT chặt (alg allow-list, typ, iat, crit, kích thước…) và
-                  # đặt X-User. Tuần 5: auth-svc gọi thêm OPA.
+                  # (3) P1: auth-svc kiểm JWT chặt (alg allow-list, typ, iat, crit, kích thước…),
+                  # hỏi OPA (tuần 5: RBAC route + method, ABAC dept/tier) rồi đặt X-User.
                   # SR-11 fail closed: auth-svc lỗi / timeout / sập → 403, KHÔNG BAO GIỜ cho qua.
-                  - name: envoy.filters.http.ext_authz
+                  - &ext_authz
+                    name: envoy.filters.http.ext_authz
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
                       transport_api_version: V3
@@ -166,6 +179,7 @@ static_resources:
                 server_name: topic09-gateway
                 use_remote_address: true
                 preserve_external_request_id: false
+                always_set_request_id_in_response: true
                 max_request_headers_kb: 16
                 request_headers_timeout: 5s
                 stream_idle_timeout: 30s
@@ -174,7 +188,12 @@ static_resources:
                 merge_slashes: true
                 path_with_escaped_slashes_action: REJECT_REQUEST
                 access_log: *access_log
-                route_config: *routes
+                route_config:
+                  name: api_routes_p0
+                  virtual_hosts:
+                    - name: api
+                      domains: ["localhost:8444", "127.0.0.1:8444"]
+                      routes: *api_route_list
                 http_filters:
                   - *strip_identity
                   # P0: chỉ jwt_authn. Kiểm chữ ký theo JWKS, iss, aud, exp/nbf; KHÔNG kiểm alg
@@ -195,6 +214,69 @@ static_resources:
                       rules:
                         - match: { prefix: / }
                           requires: { provider_name: keycloak }
+                  - *router
+
+    # ===================================================================== P2 :8445 (tuần 6)
+    # P2 = P1 + DPoP (RFC 9449): access token gắn khoá của client (cnf.jkt), mỗi request kèm proof.
+    # Token gửi bằng "Authorization: DPoP <token>" (không phải Bearer) + header "DPoP: <proof>".
+    - name: https_p2
+      address:
+        socket_address: { address: 0.0.0.0, port_value: 8445 }
+      per_connection_buffer_limit_bytes: 32768
+      filter_chains:
+        - transport_socket: *tls
+          filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: ingress_p2
+                codec_type: AUTO
+                server_name: topic09-gateway
+                use_remote_address: true
+                preserve_external_request_id: false
+                always_set_request_id_in_response: true
+                max_request_headers_kb: 16
+                request_headers_timeout: 5s
+                stream_idle_timeout: 30s
+                common_http_protocol_options: *http_opts
+                normalize_path: true
+                merge_slashes: true
+                path_with_escaped_slashes_action: REJECT_REQUEST
+                access_log: *access_log
+                route_config:
+                  name: api_routes_p2
+                  virtual_hosts:
+                    - name: api
+                      # htu của proof phải khớp Host này (auth-svc so). Host lạ đã bị chặn ở đây.
+                      domains: ["localhost:8445", "127.0.0.1:8445"]
+                      routes: *api_route_list
+                      typed_per_filter_config:
+                        envoy.filters.http.ext_authz:
+                          "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthzPerRoute
+                          check_settings:
+                            context_extensions: { profile: p2 }
+                http_filters:
+                  - *strip_identity
+                  # Như P1 nhưng đọc token theo scheme DPoP (RFC 9449 §7.1). Request mang
+                  # "Authorization: Bearer …" ở P2 → jwt_authn không thấy token → 401.
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        keycloak:
+                          issuer: http://localhost:8080/realms/topic09
+                          audiences: [topic09-api]
+                          remote_jwks: *remote_jwks
+                          clock_skew_seconds: 30
+                          from_headers:
+                            - name: authorization
+                              value_prefix: "DPoP "
+                          forward: true            # auth-svc cần token để tính ath; auth-svc xoá trước backend
+                      rules:
+                        - match: { prefix: / }
+                          requires: { provider_name: keycloak }
+                  # auth-svc kiểm token typ=DPoP + cnf.jkt + proof (12 bước RFC 9449 §4.3, cache jti), rồi OPA.
+                  - *ext_authz
                   - *router
 
   clusters:

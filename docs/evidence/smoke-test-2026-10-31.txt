@@ -1,0 +1,29 @@
+Đợi Keycloak sẵn sàng (tối đa 3 phút)...
+  [PASS] keycloak: healthy
+  [PASS] opa: healthy
+  [PASS] auth-svc: healthy
+  [PASS] orders-api: healthy
+  [PASS] profile-api: healthy
+  [PASS] envoy: running
+  [PASS] Keycloak trả discovery document của realm topic09 (đã import idp/realm-topic09.json)
+  [PASS] Port Keycloak chỉ mở trên 127.0.0.1
+  [PASS] orders-api trả 200 khi gọi từ bên trong mạng backend
+  [PASS] orders-api KHÔNG gọi thẳng được từ host
+  [PASS] profile-api trả 200 khi gọi từ bên trong mạng backend
+  [PASS] profile-api KHÔNG gọi thẳng được từ host
+  [PASS] Port Envoy (8443 P1, 8444 P0, 8445 P2) chỉ mở trên 127.0.0.1
+  [PASS] auth-svc không có port ra host
+  [PASS] OPA không có port ra host
+  [PASS] Mạng topic09-policy (internal) chỉ có auth-svc + opa
+  [PASS] Gateway bắt tay TLS 1.3, cert hợp lệ theo CA nội bộ
+  [PASS] Gateway :8443 không token → 401
+  [PASS] Gateway :8444 không token → 401
+  [PASS] Gateway :8445 không token → 401
+
+NAME                        IMAGE                                                                     COMMAND                  SERVICE       CREATED          STATUS                    PORTS
+topic09-lab-auth-svc-1      topic09/auth-svc:dev                                                      "/app"                   auth-svc      4 minutes ago    Up 4 minutes (healthy)    
+topic09-lab-envoy-1         envoyproxy/envoy:distroless-v1.39.4                                       "/usr/local/bin/envo…"   envoy         4 minutes ago    Up 4 minutes              127.0.0.1:8443-8445->8443-8445/tcp, 10000/tcp
+topic09-lab-keycloak-1      quay.io/keycloak/keycloak:26.8.0                                          "/opt/keycloak/bin/k…"   keycloak      2 weeks ago      Up 25 minutes (healthy)   8443/tcp, 127.0.0.1:8080->8080/tcp, 9000/tcp
+topic09-lab-opa-1           openpolicyagent/opa:1.21.4-static                                         "/opa run --server -…"   opa           25 minutes ago   Up 20 minutes (healthy)   
+topic09-lab-orders-api-1    sha256:0ba912e736bafe2d235533ed23e41c6d2406382f94e6b24613a7d38173c8087e   "/app"                   orders-api    25 minutes ago   Up 25 minutes (healthy)   
+topic09-lab-profile-api-1   sha256:10998b7e158361c4543eb057dea356e58833d1016009dc85e2d5309e4e01a34e   "/app"                   profile-api   25 minutes ago   Up 25 minutes (healthy)   
