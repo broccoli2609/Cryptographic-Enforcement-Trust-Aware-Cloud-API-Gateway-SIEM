@@ -78,8 +78,9 @@ check "A1 token DPoP + proof đúng GET /orders/whoami" 200
 [ "$(body_user)" = "$SUB" ] && { N=$((N + 1)); echo "  [PASS] A1' backend nhận X-User = sub của alice"; } || { N=$((N + 1)); FAIL=$((FAIL + 1)); echo "  [FAIL] A1' X-User = '$(body_user)'"; }
 p2 GET /profile/whoami "$AUTH" "$(dpop_proof "$TMP/alice.pem" GET "$GW/profile/whoami" "$TOK")"
 check "A2 proof mới cho URL khác GET /profile/whoami" 200
-p2 POST /orders "$AUTH" "$(dpop_proof "$TMP/alice.pem" POST "$GW/orders" "$TOK")" -d '{}'
-check "A3 POST /orders (htm=POST; OPA: alice dept=sales được tạo đơn) → backend 501" 501
+p2 POST /orders "$AUTH" "$(dpop_proof "$TMP/alice.pem" POST "$GW/orders" "$TOK")" \
+  -H 'Content-Type: application/json' -d '{"item":"P2 DPoP order","quantity":1}'
+check "A3 POST /orders (htm=POST; OPA: alice dept=sales; tuần 7: backend tạo đơn)" 201
 p2 GET /orders/whoami "$AUTH" "$(dpop_proof "$TMP/alice.pem" GET "$U" "$TOK")" -H "X-User: admin"
 [ "$CODE" = 200 ] && [ "$(body_user)" = "$SUB" ] && { N=$((N + 1)); echo "  [PASS] A4 X-User: admin tự gửi bị xoá, backend thấy sub thật"; } || { N=$((N + 1)); FAIL=$((FAIL + 1)); echo "  [FAIL] A4 X-User = '$(body_user)' ($CODE)"; }
 

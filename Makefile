@@ -1,6 +1,6 @@
 COMPOSE ?= docker compose
 
-.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence policy-test authz-test dpop-client dpop-login dpop-test
+.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence policy-test authz-test dpop-client dpop-login dpop-test object-authz-test
 
 OPA_IMAGE ?= openpolicyagent/opa:1.21.4-static
 
@@ -81,7 +81,12 @@ dpop-login:    ## Auth Code + PKCE + DPoP cho alice, in trace + 7 ca ở token e
 dpop-test:     ## P2 đầu-cuối: replay, token bị trộm, 14 ca proof sai, hạ cấp sang Bearer
 	./scripts/dpop-test.sh
 
-evidence:      ## Chạy lại mọi kiểm tra tuần 3–6 và lưu vào docs/evidence, docs/traces
+# --- Tuần 7: object-level / property-level ở backend ---
+
+object-authz-test: ## BOLA/BFLA/property-level đầu-cuối (P1 + P0), log 2 tầng gateway ↔ backend
+	./scripts/object-authz-test.sh
+
+evidence:      ## Chạy lại mọi kiểm tra tuần 3–7 và lưu vào docs/evidence, docs/traces
 	./scripts/check-realm.sh > docs/evidence/realm-topic09-$$(date +%F).txt
 	./scripts/token-claims.sh > docs/evidence/token-claims-$$(date +%F).txt
 	./scripts/pkce-login.sh alice > docs/traces/pkce-auth-code-$$(date +%F).txt
@@ -95,4 +100,5 @@ evidence:      ## Chạy lại mọi kiểm tra tuần 3–6 và lưu vào docs/
 	@mkdir -p -m 700 secrets/dpop
 	./scripts/dpop-login.sh alice secrets/dpop/alice.pem > docs/traces/dpop-token-$$(date +%F).txt
 	./scripts/dpop-test.sh > docs/evidence/dpop-p2-$$(date +%F).txt
+	./scripts/object-authz-test.sh > docs/evidence/object-authz-$$(date +%F).txt
 	./scripts/smoke-test.sh > docs/evidence/smoke-test-$$(date +%F).txt

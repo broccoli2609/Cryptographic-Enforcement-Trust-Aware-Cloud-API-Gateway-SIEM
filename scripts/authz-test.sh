@@ -5,8 +5,10 @@
 #   ./scripts/authz-test.sh | tee docs/evidence/authz-opa-p1-$(date +%F).txt
 # Mã thoát = số ca FAIL. Cần lab đang chạy và đã chạy batch-worker-key.sh.
 #
-# Cách đọc kết quả: backend chưa có nghiệp vụ (tuần 7) nên route được phép trả 501 từ BACKEND.
-#   "QUA"  = request tới được backend (có header x-envoy-upstream-service-time) — gateway cho phép
+# Cách đọc kết quả — script này chỉ chấm lớp GATEWAY (mã của backend in kèm để tham khảo):
+#   "QUA"  = request tới được backend (có header x-envoy-upstream-service-time) — gateway cho phép.
+#            Từ tuần 7 backend tự kiểm đối tượng nên có thể trả 404 (/orders/1 không có) hay 400
+#            (body '{}' thiếu item) — vẫn tính là QUA. Lớp backend chấm ở object-authz-test.sh.
 #   "CHẶN" = gateway trả 403 trước khi tới backend
 set -uo pipefail
 . "$(dirname "$0")/lib/common.sh"
