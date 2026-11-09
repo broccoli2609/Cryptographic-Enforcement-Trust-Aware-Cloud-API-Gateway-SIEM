@@ -1,0 +1,17 @@
+[
+  { "id": "ord-1001", "owner_id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "dept": "sales", "item": "Laptop Latitude 5450", "quantity": 2, "status": "open", "created_at": "2026-11-02T01:10:00Z" },
+  { "id": "ord-1002", "owner_id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf", "dept": "engineering", "item": "YubiKey 5 NFC", "quantity": 10, "status": "shipped", "created_at": "2026-11-02T01:20:00Z" },
+  { "id": "ord-1003", "owner_id": "8020a828-ab0c-4eb8-843c-51d896fd4d45", "dept": "sales", "item": "Projector EB-X51", "quantity": 1, "status": "open", "created_at": "2026-11-02T01:30:00Z" },
+  { "id": "ord-1004", "owner_id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "dept": "sales", "item": "Brochure print run", "quantity": 500, "status": "shipped", "created_at": "2026-11-02T02:00:00Z" },
+  { "id": "ord-1005", "owner_id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf", "dept": "engineering", "item": "Rack server R660", "quantity": 1, "status": "open", "created_at": "2026-11-02T02:10:00Z" },
+  { "id": "ord-1006", "owner_id": "8020a828-ab0c-4eb8-843c-51d896fd4d45", "dept": "sales", "item": "CRM licence (annual)", "quantity": 25, "status": "open", "created_at": "2026-11-02T02:20:00Z" },
+  { "id": "ord-1007", "owner_id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "dept": "sales", "item": "Trade show booth", "quantity": 1, "status": "cancelled", "created_at": "2026-11-03T03:00:00Z" },
+  { "id": "ord-1008", "owner_id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf", "dept": "engineering", "item": "USB-C dock", "quantity": 8, "status": "open", "created_at": "2026-11-03T03:10:00Z" },
+  { "id": "ord-1009", "owner_id": "8020a828-ab0c-4eb8-843c-51d896fd4d45", "dept": "sales", "item": "Client gift set", "quantity": 40, "status": "shipped", "created_at": "2026-11-03T03:20:00Z" },
+  { "id": "ord-1010", "owner_id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "dept": "sales", "item": "Headset H540", "quantity": 3, "status": "open", "created_at": "2026-11-04T04:00:00Z" },
+  { "id": "ord-1011", "owner_id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf", "dept": "engineering", "item": "Monitor 27in 4K", "quantity": 4, "status": "open", "created_at": "2026-11-04T04:10:00Z" },
+  { "id": "ord-1012", "owner_id": "8020a828-ab0c-4eb8-843c-51d896fd4d45", "dept": "sales", "item": "Sales training seats", "quantity": 12, "status": "open", "created_at": "2026-11-04T04:20:00Z" },
+  { "id": "ord-1013", "owner_id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "dept": "sales", "item": "Business cards", "quantity": 200, "status": "shipped", "created_at": "2026-11-05T05:00:00Z" },
+  { "id": "ord-1014", "owner_id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf", "dept": "engineering", "item": "HSM evaluation kit", "quantity": 1, "status": "open", "created_at": "2026-11-05T05:10:00Z" },
+  { "id": "ord-1015", "owner_id": "8020a828-ab0c-4eb8-843c-51d896fd4d45", "dept": "sales", "item": "Quarterly kickoff venue", "quantity": 1, "status": "open", "created_at": "2026-11-05T05:20:00Z" }
+]

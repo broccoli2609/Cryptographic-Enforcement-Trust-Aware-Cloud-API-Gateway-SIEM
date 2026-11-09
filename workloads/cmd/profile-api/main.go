@@ -1,4 +1,4 @@
-// Lệnh profile-api: backend rỗng của lab Topic 09.
+// Lệnh profile-api: backend hồ sơ nhân viên của lab Topic 09 (kiểm quyền mức thuộc tính từ tuần 7).
 //
 // Chạy server:          profile-api
 // Kiểm sức khoẻ (Docker): profile-api -healthcheck
@@ -8,6 +8,8 @@ import (
 	"flag"
 	"os"
 
+	"topic09-lab/workloads/fixtures"
+	"topic09-lab/workloads/internal/profiles"
 	"topic09-lab/workloads/internal/service"
 )
 
@@ -21,7 +23,12 @@ func main() {
 	}
 
 	logger := service.NewLogger(os.Stdout, cfg.Name)
-	if err := service.Run(cfg, service.NewHandler(cfg.Name, "/profile", logger), logger); err != nil {
+	store, err := profiles.NewStore(fixtures.Profiles)
+	if err != nil {
+		logger.Error("fixture invalid", "error", err.Error())
+		os.Exit(1)
+	}
+	if err := service.Run(cfg, service.NewHandler(cfg.Name, "/profile", logger, store.Register), logger); err != nil {
 		logger.Error("server stopped", "error", err.Error())
 		os.Exit(1)
 	}
