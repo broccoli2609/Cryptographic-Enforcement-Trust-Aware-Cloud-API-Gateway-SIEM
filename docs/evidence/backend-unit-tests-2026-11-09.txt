@@ -1,0 +1,144 @@
+?   	topic09-lab/workloads/cmd/orders-api	[no test files]
+?   	topic09-lab/workloads/cmd/profile-api	[no test files]
+=== RUN   TestOrdersFixtureIsThreeOwnersTimesFive
+--- PASS: TestOrdersFixtureIsThreeOwnersTimesFive (0.00s)
+=== RUN   TestFixtureIDsMatchRealmUsers
+--- PASS: TestFixtureIDsMatchRealmUsers (0.00s)
+PASS
+ok  	topic09-lab/workloads/fixtures	0.007s
+=== RUN   TestObjectLevelRules
+=== RUN   TestObjectLevelRules/chủ_đơn_đọc_đơn_của_mình
+=== RUN   TestObjectLevelRules/BOLA:_alice_đọc_đơn_của_bob
+=== RUN   TestObjectLevelRules/manager_cùng_phòng
+=== RUN   TestObjectLevelRules/manager_khác_phòng
+=== RUN   TestObjectLevelRules/hr_không_có_quyền_với_đơn
+=== RUN   TestObjectLevelRules/P0:_dave_không_có_role/dept
+=== RUN   TestObjectLevelRules/dept_rỗng_không_khớp_dept_rỗng
+--- PASS: TestObjectLevelRules (0.00s)
+    --- PASS: TestObjectLevelRules/chủ_đơn_đọc_đơn_của_mình (0.00s)
+    --- PASS: TestObjectLevelRules/BOLA:_alice_đọc_đơn_của_bob (0.00s)
+    --- PASS: TestObjectLevelRules/manager_cùng_phòng (0.00s)
+    --- PASS: TestObjectLevelRules/manager_khác_phòng (0.00s)
+    --- PASS: TestObjectLevelRules/hr_không_có_quyền_với_đơn (0.00s)
+    --- PASS: TestObjectLevelRules/P0:_dave_không_có_role/dept (0.00s)
+    --- PASS: TestObjectLevelRules/dept_rỗng_không_khớp_dept_rỗng (0.00s)
+=== RUN   TestOwnerReadsOwnOrder
+--- PASS: TestOwnerReadsOwnOrder (0.00s)
+=== RUN   TestBOLAOtherUsersOrderLooksLikeNotFound
+--- PASS: TestBOLAOtherUsersOrderLooksLikeNotFound (0.00s)
+=== RUN   TestManagerReadsOnlyOwnDept
+--- PASS: TestManagerReadsOnlyOwnDept (0.00s)
+=== RUN   TestDeleteRequiresDeptManager
+--- PASS: TestDeleteRequiresDeptManager (0.00s)
+=== RUN   TestListIsFilteredByServer
+--- PASS: TestListIsFilteredByServer (0.00s)
+=== RUN   TestExportUsesSameFilter
+--- PASS: TestExportUsesSameFilter (0.00s)
+=== RUN   TestCreateTakesOwnerFromIdentity
+=== RUN   TestCreateTakesOwnerFromIdentity/status
+=== RUN   TestCreateTakesOwnerFromIdentity/OwnerID_hoa
+=== RUN   TestCreateTakesOwnerFromIdentity/owner_id
+=== RUN   TestCreateTakesOwnerFromIdentity/dept
+=== RUN   TestCreateTakesOwnerFromIdentity/quantity_lớn
+=== RUN   TestCreateTakesOwnerFromIdentity/item_rỗng
+=== RUN   TestCreateTakesOwnerFromIdentity/item_xuống_dòng
+=== RUN   TestCreateTakesOwnerFromIdentity/item_quá_dài
+=== RUN   TestCreateTakesOwnerFromIdentity/quantity_0
+--- PASS: TestCreateTakesOwnerFromIdentity (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/status (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/OwnerID_hoa (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/owner_id (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/dept (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/quantity_lớn (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/item_rỗng (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/item_xuống_dòng (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/item_quá_dài (0.00s)
+    --- PASS: TestCreateTakesOwnerFromIdentity/quantity_0 (0.00s)
+=== RUN   TestCreateStopsAtCapacity
+--- PASS: TestCreateStopsAtCapacity (0.00s)
+=== RUN   TestBusinessRoutesRequireIdentity
+--- PASS: TestBusinessRoutesRequireIdentity (0.00s)
+=== RUN   TestNewStoreRejectsBadFixture
+--- PASS: TestNewStoreRejectsBadFixture (0.00s)
+PASS
+ok  	topic09-lab/workloads/internal/orders	0.012s
+=== RUN   TestSalaryBandOnlyForHR
+=== RUN   TestSalaryBandOnlyForHR/hr_xem_hồ_sơ_alice
+=== RUN   TestSalaryBandOnlyForHR/manager_cùng_phòng_xem_alice
+=== RUN   TestSalaryBandOnlyForHR/alice_xem_/me
+=== RUN   TestSalaryBandOnlyForHR/carol_(hr)_xem_/me
+=== RUN   TestSalaryBandOnlyForHR/alice_xem_chính_mình_qua_{id}
+--- PASS: TestSalaryBandOnlyForHR (0.00s)
+    --- PASS: TestSalaryBandOnlyForHR/hr_xem_hồ_sơ_alice (0.00s)
+    --- PASS: TestSalaryBandOnlyForHR/manager_cùng_phòng_xem_alice (0.00s)
+    --- PASS: TestSalaryBandOnlyForHR/alice_xem_/me (0.00s)
+    --- PASS: TestSalaryBandOnlyForHR/carol_(hr)_xem_/me (0.00s)
+    --- PASS: TestSalaryBandOnlyForHR/alice_xem_chính_mình_qua_{id} (0.00s)
+=== RUN   TestManagerOtherDeptLooksLikeNotFound
+--- PASS: TestManagerOtherDeptLooksLikeNotFound (0.00s)
+=== RUN   TestHRUpdatesTitleAndSalaryBand
+--- PASS: TestHRUpdatesTitleAndSalaryBand (0.00s)
+=== RUN   TestUpdateRejectsForbiddenProperties
+=== RUN   TestUpdateRejectsForbiddenProperties/mass_assignment:_dept
+=== RUN   TestUpdateRejectsForbiddenProperties/mass_assignment:_user_id
+=== RUN   TestUpdateRejectsForbiddenProperties/P0:_alice_tự_nâng_salary_band
+=== RUN   TestUpdateRejectsForbiddenProperties/P0:_alice_tự_đổi_title
+=== RUN   TestUpdateRejectsForbiddenProperties/hr_tự_sửa_salary_band_của_mình
+=== RUN   TestUpdateRejectsForbiddenProperties/manager_phòng_khác
+=== RUN   TestUpdateRejectsForbiddenProperties/không_tồn_tại
+--- PASS: TestUpdateRejectsForbiddenProperties (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/mass_assignment:_dept (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/mass_assignment:_user_id (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/P0:_alice_tự_nâng_salary_band (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/P0:_alice_tự_đổi_title (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/hr_tự_sửa_salary_band_của_mình (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/manager_phòng_khác (0.00s)
+    --- PASS: TestUpdateRejectsForbiddenProperties/không_tồn_tại (0.00s)
+=== RUN   TestUpdateValidatesValues
+=== RUN   TestUpdateValidatesValues/title_rỗng
+=== RUN   TestUpdateValidatesValues/không_phải_object
+=== RUN   TestUpdateValidatesValues/rỗng
+=== RUN   TestUpdateValidatesValues/salary_band_lạ
+=== RUN   TestUpdateValidatesValues/title_xuống_dòng
+--- PASS: TestUpdateValidatesValues (0.00s)
+    --- PASS: TestUpdateValidatesValues/title_rỗng (0.00s)
+    --- PASS: TestUpdateValidatesValues/không_phải_object (0.00s)
+    --- PASS: TestUpdateValidatesValues/rỗng (0.00s)
+    --- PASS: TestUpdateValidatesValues/salary_band_lạ (0.00s)
+    --- PASS: TestUpdateValidatesValues/title_xuống_dòng (0.00s)
+=== RUN   TestNewStoreRejectsBadFixture
+--- PASS: TestNewStoreRejectsBadFixture (0.00s)
+PASS
+ok  	topic09-lab/workloads/internal/profiles	0.012s
+=== RUN   TestWhoAmIReturnsGatewayIdentity
+--- PASS: TestWhoAmIReturnsGatewayIdentity (0.00s)
+=== RUN   TestWhoAmIWithoutIdentityReturns401
+--- PASS: TestWhoAmIWithoutIdentityReturns401 (0.00s)
+=== RUN   TestWhoAmIRejectsOversizedIdentity
+--- PASS: TestWhoAmIRejectsOversizedIdentity (0.00s)
+=== RUN   TestHealthzReturns200
+--- PASS: TestHealthzReturns200 (0.00s)
+=== RUN   TestUnknownRouteReturns404
+--- PASS: TestUnknownRouteReturns404 (0.00s)
+=== RUN   TestHealthzRejectsPost
+--- PASS: TestHealthzRejectsPost (0.00s)
+=== RUN   TestLogsNeverContainTokens
+--- PASS: TestLogsNeverContainTokens (0.00s)
+=== RUN   TestRequestIDIsTruncated
+--- PASS: TestRequestIDIsTruncated (0.00s)
+=== RUN   TestIdentityFromDropsUnsafeRolesAndDept
+--- PASS: TestIdentityFromDropsUnsafeRolesAndDept (0.00s)
+=== RUN   TestIdentityFromP0HasNoRoles
+--- PASS: TestIdentityFromP0HasNoRoles (0.00s)
+=== RUN   TestReadJSONRejectsUnknownFieldAndHugeBody
+=== RUN   TestReadJSONRejectsUnknownFieldAndHugeBody/hai_object_liền_nhau
+=== RUN   TestReadJSONRejectsUnknownFieldAndHugeBody/không_phải_JSON
+=== RUN   TestReadJSONRejectsUnknownFieldAndHugeBody/body_quá_4_KiB
+=== RUN   TestReadJSONRejectsUnknownFieldAndHugeBody/trường_lạ_(mass_assignment)
+--- PASS: TestReadJSONRejectsUnknownFieldAndHugeBody (0.00s)
+    --- PASS: TestReadJSONRejectsUnknownFieldAndHugeBody/hai_object_liền_nhau (0.00s)
+    --- PASS: TestReadJSONRejectsUnknownFieldAndHugeBody/không_phải_JSON (0.00s)
+    --- PASS: TestReadJSONRejectsUnknownFieldAndHugeBody/body_quá_4_KiB (0.00s)
+    --- PASS: TestReadJSONRejectsUnknownFieldAndHugeBody/trường_lạ_(mass_assignment) (0.00s)
+PASS
+ok  	topic09-lab/workloads/internal/service	0.006s

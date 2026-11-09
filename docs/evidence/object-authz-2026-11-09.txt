@@ -1,0 +1,142 @@
+# Phân quyền mức đối tượng/thuộc tính ở backend (tuần 7) — 2026-11-09T07:10:55+00:00
+# Nạp lại fixture: restart orders-api + profile-api (dữ liệu chỉ nằm trong bộ nhớ)
+# Fixture (workloads/fixtures/orders.json): 3 chủ × 5 đơn, ID xen kẽ
+#   alice (sales):       ord-1001 ord-1004 ord-1007 ord-1010 ord-1013
+#   bob   (engineering): ord-1002 ord-1005 ord-1008 ord-1011 ord-1014
+#   dave  (sales, manager): ord-1003 ord-1006 ord-1009 ord-1012 ord-1015
+# User không có đơn: carol (hr). Hồ sơ: workloads/fixtures/profiles.json (4 người, có salary_band)
+
+## A. BOLA (OWASP API1) — gateway cho qua (employee được GET /orders/{id}), backend kiểm owner_id
+  [PASS] A1 alice GET đơn của mình ord-1001 → 200 (backend)
+  [PASS] A2 alice GET ord-1002 (đơn của bob — ID mình +1) → 404 (backend)
+  [PASS] A3 alice GET ord-1003 (đơn của dave, CÙNG phòng sales) → 404 (backend)
+  [PASS] A4 bob   GET ord-1001 (đơn của alice) → 404 (backend)
+  [PASS] A5 alice GET ord-9999 (không tồn tại) → 404 (backend)
+  [PASS] A6 body của A2 (đơn người khác) giống hệt A5 (không tồn tại): {"error":"not_found"} — không dò được đơn nào có thật
+  [PASS] A7 alice GET /orders (danh sách lọc ở server) → 200 (backend)
+  [PASS] A8 carol (hr) GET ord-1001 (hr không có quyền gì với đơn hàng) → 404 (backend)
+  [PASS] A9 alice POST /orders kèm owner_id của bob (mass assignment) → 400 (backend)
+  [PASS] A10 alice POST /orders hợp lệ → owner_id do server đặt = sub của alice → 201 (backend)
+
+## B. manager — chỉ đơn CÙNG phòng ban (gateway không biết đơn thuộc phòng nào)
+  [PASS] B1 dave (manager sales) GET ord-1001 (đơn sales của alice) → 200 (backend)
+  [PASS] B2 dave GET ord-1002 (đơn engineering) → 404 (backend)
+  [PASS] B3 dave DELETE ord-1014 (OPA: manager được DELETE; đơn engineering) → 404 (backend)
+  [PASS] B4 dave DELETE ord-1013 (đơn sales) → 204 (backend)
+  [PASS] B5 alice GET ord-1013 sau khi bị xoá → 404 (backend)
+  [PASS] B6 batch-worker GET /orders (job đối soát đọc tất cả: 15 + 1 tạo − 1 xoá) → 200 (backend)
+
+## C. Property-level (OWASP API3) — profile-api
+  [PASS] C1 carol (hr) GET hồ sơ alice → có salary_band → 200 (backend)
+  [PASS] C2 dave (manager sales) GET hồ sơ alice → KHÔNG có salary_band → 200 (backend)
+  [PASS] C3 dave GET hồ sơ bob (engineering) → 404 (backend)
+  [PASS] C4 alice GET /profile/me → hồ sơ mình, không có salary_band → 200 (backend)
+  [PASS] C5 carol PATCH hồ sơ alice {dept} (mass assignment) → 400 (backend)
+  [PASS] C6 carol PATCH salary_band của CHÍNH MÌNH (tách nhiệm vụ) → 403 (backend)
+  [PASS] C7 carol PATCH salary_band của alice → 200 (backend)
+
+## D. BFLA (OWASP API5) — gateway chặn theo route + method, request không tới backend
+  [PASS] D1 alice (employee) DELETE ord-1001 — đơn của chính mình → 403 (gateway)
+  [PASS] D2 dave (manager) PATCH hồ sơ (chỉ hr) → 403 (gateway)
+  [PASS] D3 alice (employee) GET /profile/{id} (chỉ hr, manager) → 403 (gateway)
+
+## E. P0 :8444 — gateway chỉ xác thực, không gửi role/dept: backend là lớp phân quyền duy nhất
+  [PASS] E1 alice GET ord-1002 (BOLA) — không có OPA vẫn bị chặn → 404 (backend)
+  [PASS] E2 alice DELETE ord-1001 (BFLA lọt gateway P0) — backend: không phải manager → 403 (backend)
+  [PASS] E3 alice tự nâng salary_band qua P0 → 403 (backend)
+  [PASS] E4 carol GET hồ sơ alice qua P0 (thiếu role → ít quyền nhất) → 404 (backend)
+  [PASS] E5 như E3 + tự gửi X-User-Roles: hr (Envoy xoá trước khi tới backend) → 403 (backend)
+
+## F. Log 2 tầng — nối bằng x-request-id (không in principal/sub, không in token)
+  [PASS] A1 alice GET đơn của mình ord-1001
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=owner [orders-api GET /orders/{id} → 200]
+  [PASS] A2 alice GET ord-1002 (đơn của bob — ID mình +1)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_owner [orders-api GET /orders/{id} → 404]
+  [PASS] A3 alice GET ord-1003 (đơn của dave, CÙNG phòng sales)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_owner [orders-api GET /orders/{id} → 404]
+  [PASS] A4 bob   GET ord-1001 (đơn của alice)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_owner [orders-api GET /orders/{id} → 404]
+  [PASS] A5 alice GET ord-9999 (không tồn tại)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_found [orders-api GET /orders/{id} → 404]
+  [PASS] A7 alice GET /orders (danh sách lọc ở server)
+           gateway: auth-svc allow reason=ok route=orders.list policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=filtered [orders-api GET /orders → 200]
+  [PASS] A8 carol (hr) GET ord-1001 (hr không có quyền gì với đơn hàng)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_owner [orders-api GET /orders/{id} → 404]
+  [PASS] A9 alice POST /orders kèm owner_id của bob (mass assignment)
+           gateway: auth-svc allow reason=ok route=orders.create policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=unknown_field [orders-api POST /orders → 400]
+  [PASS] A10 alice POST /orders hợp lệ → owner_id do server đặt = sub của alice
+           gateway: auth-svc allow reason=ok route=orders.create policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=owner_is_caller [orders-api POST /orders → 201]
+  [PASS] B1 dave (manager sales) GET ord-1001 (đơn sales của alice)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=dept_manager [orders-api GET /orders/{id} → 200]
+  [PASS] B2 dave GET ord-1002 (đơn engineering)
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_owner [orders-api GET /orders/{id} → 404]
+  [PASS] B3 dave DELETE ord-1014 (OPA: manager được DELETE; đơn engineering)
+           gateway: auth-svc allow reason=ok route=orders.delete policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_owner [orders-api DELETE /orders/{id} → 404]
+  [PASS] B4 dave DELETE ord-1013 (đơn sales)
+           gateway: auth-svc allow reason=ok route=orders.delete policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=dept_manager [orders-api DELETE /orders/{id} → 204]
+  [PASS] B5 alice GET ord-1013 sau khi bị xoá
+           gateway: auth-svc allow reason=ok route=orders.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_found [orders-api GET /orders/{id} → 404]
+  [PASS] B6 batch-worker GET /orders (job đối soát đọc tất cả: 15 + 1 tạo − 1 xoá)
+           gateway: auth-svc allow reason=ok route=orders.list policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=batch_all [orders-api GET /orders → 200]
+  [PASS] C1 carol (hr) GET hồ sơ alice → có salary_band
+           gateway: auth-svc allow reason=ok route=profile.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=hr [profile-api GET /profile/{id} → 200]
+  [PASS] C2 dave (manager sales) GET hồ sơ alice → KHÔNG có salary_band
+           gateway: auth-svc allow reason=ok route=profile.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=dept_manager redacted=salary_band [profile-api GET /profile/{id} → 200]
+  [PASS] C3 dave GET hồ sơ bob (engineering)
+           gateway: auth-svc allow reason=ok route=profile.read policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=not_allowed [profile-api GET /profile/{id} → 404]
+  [PASS] C4 alice GET /profile/me → hồ sơ mình, không có salary_band
+           gateway: auth-svc allow reason=ok route=profile.me policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=self redacted=salary_band [profile-api GET /profile/me → 200]
+  [PASS] C5 carol PATCH hồ sơ alice {dept} (mass assignment)
+           gateway: auth-svc allow reason=ok route=profile.update policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=unknown_field [profile-api PATCH /profile/{id} → 400]
+  [PASS] C6 carol PATCH salary_band của CHÍNH MÌNH (tách nhiệm vụ)
+           gateway: auth-svc allow reason=ok route=profile.update policy=topic09.authz@1.0.0
+           backend: backend_object_authz=deny reason=self_salary_change [profile-api PATCH /profile/{id} → 403]
+  [PASS] C7 carol PATCH salary_band của alice
+           gateway: auth-svc allow reason=ok route=profile.update policy=topic09.authz@1.0.0
+           backend: backend_object_authz=allow reason=hr_update [profile-api PATCH /profile/{id} → 200]
+  [PASS] D1 alice (employee) DELETE ord-1001 — đơn của chính mình
+           gateway: auth-svc deny reason=role_not_allowed route=orders.delete policy=topic09.authz@1.0.0
+           backend: không có dòng log nào — request không tới backend
+  [PASS] D2 dave (manager) PATCH hồ sơ (chỉ hr)
+           gateway: auth-svc deny reason=role_not_allowed route=profile.update policy=topic09.authz@1.0.0
+           backend: không có dòng log nào — request không tới backend
+  [PASS] D3 alice (employee) GET /profile/{id} (chỉ hr, manager)
+           gateway: auth-svc deny reason=role_not_allowed route=profile.read policy=topic09.authz@1.0.0
+           backend: không có dòng log nào — request không tới backend
+  [PASS] E1 alice GET ord-1002 (BOLA) — không có OPA vẫn bị chặn
+           gateway: Envoy P0 — jwt_authn: token hợp lệ → chuyển thẳng orders_api (không có ext_authz/OPA)
+           backend: backend_object_authz=deny reason=not_owner [orders-api GET /orders/{id} → 404]
+  [PASS] E2 alice DELETE ord-1001 (BFLA lọt gateway P0) — backend: không phải manager
+           gateway: Envoy P0 — jwt_authn: token hợp lệ → chuyển thẳng orders_api (không có ext_authz/OPA)
+           backend: backend_object_authz=deny reason=not_dept_manager [orders-api DELETE /orders/{id} → 403]
+  [PASS] E3 alice tự nâng salary_band qua P0
+           gateway: Envoy P0 — jwt_authn: token hợp lệ → chuyển thẳng profile_api (không có ext_authz/OPA)
+           backend: backend_object_authz=deny reason=forbidden_property [profile-api PATCH /profile/{id} → 403]
+  [PASS] E4 carol GET hồ sơ alice qua P0 (thiếu role → ít quyền nhất)
+           gateway: Envoy P0 — jwt_authn: token hợp lệ → chuyển thẳng profile_api (không có ext_authz/OPA)
+           backend: backend_object_authz=deny reason=not_allowed [profile-api GET /profile/{id} → 404]
+  [PASS] E5 như E3 + tự gửi X-User-Roles: hr (Envoy xoá trước khi tới backend)
+           gateway: Envoy P0 — jwt_authn: token hợp lệ → chuyển thẳng profile_api (không có ext_authz/OPA)
+           backend: backend_object_authz=deny reason=forbidden_property [profile-api PATCH /profile/{id} → 403]
+
+Kết quả: 61/61 PASS

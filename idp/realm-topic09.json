@@ -219,6 +219,7 @@
   ],
   "users": [
     {
+      "id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6",
       "username": "alice",
       "enabled": true,
       "emailVerified": true,
@@ -230,6 +231,7 @@
       "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
     },
     {
+      "id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf",
       "username": "bob",
       "enabled": true,
       "emailVerified": true,
@@ -241,6 +243,7 @@
       "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
     },
     {
+      "id": "ce1e374d-0253-4dad-92e9-3bb07a218ade",
       "username": "carol",
       "enabled": true,
       "emailVerified": true,
@@ -252,6 +255,7 @@
       "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
     },
     {
+      "id": "8020a828-ab0c-4eb8-843c-51d896fd4d45",
       "username": "dave",
       "enabled": true,
       "emailVerified": true,
@@ -263,6 +267,7 @@
       "credentials": [{ "type": "password", "value": "${LAB_USER_PASSWORD}", "temporary": false }]
     },
     {
+      "id": "0ea21a2c-1308-44b7-ab08-2712b75ed59b",
       "username": "service-account-batch-worker",
       "enabled": true,
       "serviceAccountClientId": "batch-worker",

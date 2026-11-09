@@ -28,7 +28,7 @@ SIEM" của mức Đại học, nhẹ máy, và mọi ranh giới mạng vẫn t
 | Plane | Câu hỏi | Thành phần | Trạng thái |
 |---|---|---|---|
 | Identity | Ai là ai? | Keycloak 26.8.0 (IdP, ký token, công bố JWKS); CA nội bộ (cert TLS cho Envoy) | xong (tuần 3–4) |
-| Data | Request đi thế nào? | Envoy 1.39.4 (PEP, kết thúc TLS 1.3); auth-svc Go (PEP: JWT, DPoP, hỏi OPA); orders-api, profile-api | xong tới DPoP (tuần 6); object-level ở tuần 7 |
+| Data | Request đi thế nào? | Envoy 1.39.4 (PEP, kết thúc TLS 1.3); auth-svc Go (PEP: JWT, DPoP, hỏi OPA); orders-api, profile-api | xong tới DPoP (tuần 6); object/property-level ở backend (tuần 7) |
 | Policy / Control | Luật và cấu hình là gì? | OPA 1.21.4 (PDP, Rego); file cấu hình (compose, envoy.yaml, realm, policy); Vault Transit (khoá ký digest) | OPA xong (tuần 5); Vault tuần 9 |
 | Security telemetry | Chuyện gì đã xảy ra? | log JSON của mọi thành phần → Vector (HMAC định danh, xoá token, hash chain) → OpenSearch; digester ký digest định kỳ | tuần 8–10 |
 
@@ -42,10 +42,12 @@ batch-worker và cho DPoP proof. Sơ đồ sẽ được sửa cho khớp.
 |---|---|---|---|
 | Xác thực (AuthN) | token có thật, còn hạn, đúng người nhận, đúng người gửi? | Envoy `jwt_authn` + auth-svc (JWT chặt, DPoP) | chữ ký, `iss`/`aud`/`exp`/`typ`, `cnf.jkt` + proof |
 | Phân quyền chức năng | role/thuộc tính này có được gọi route + method này? | OPA (PDP), auth-svc thi hành | `DELETE /orders/{id}` chỉ manager; `POST /orders` chỉ `dept=sales` |
-| Phân quyền đối tượng / thuộc tính | đơn hàng 123 có phải của người gọi? trường `salary_band` có được xem? | backend (tuần 7) | `owner_id`, `salary_band` chỉ HR |
+| Phân quyền đối tượng / thuộc tính | đơn hàng 123 có phải của người gọi? trường `salary_band` có được xem? | backend: orders-api, profile-api (tuần 7) | đọc đơn: chủ đơn hoặc manager cùng phòng; `salary_band` chỉ HR; trường lạ trong body → 400 |
 
 Gateway **không** quyết định được lớp thứ ba vì không biết đơn hàng 123 thuộc ai — đó là lý do
-đề bài yêu cầu fixture object-level ở backend, không chỉ kiểm scope ở gateway.
+đề bài yêu cầu fixture object-level ở backend, không chỉ kiểm scope ở gateway. Để backend tự quyết,
+auth-svc gửi xuống `X-User` (sub), `X-User-Roles`, `X-User-Dept` lấy từ claim đã kiểm (P0 chỉ gửi
+`X-User` → backend coi như không có role). Chi tiết: `docs/notes/owasp-api-top10.md`.
 
 ## 3. Tài sản cần bảo vệ (đề bài mục 4)
 
@@ -148,7 +150,8 @@ Checklist: *"mTLS/workload identity được đánh giá cho east-west hoặc sc
 - **Thay bằng:** cô lập mạng Docker — `topic09-backend`, `topic09-authz`, `topic09-policy` đều
   `internal: true`, không publish port (smoke test kiểm tự động); Envoy là thành phần duy nhất nối
   phía client với phía backend; Envoy xoá header danh tính client gửi rồi mới đặt `X-User`;
-  backend sẽ tự kiểm quyền đối tượng (tuần 7), không tin hoàn toàn vào gateway.
+  backend tự kiểm quyền đối tượng/thuộc tính (tuần 7), không tin hoàn toàn vào gateway — BOLA bị
+  chặn cả ở P0, nơi gateway không phân quyền (`object-authz-2026-11-09.txt`, E1–E5).
 - **Rủi ro còn lại:** TB2b, TB3 chỉ dựa vào vị trí mạng. Một container bị chiếm trong mạng backend
   gửi được `X-User` bất kỳ; trong mạng policy thì hỏi được OPA trực tiếp.
 - **Cách nâng cấp:** mTLS do Envoy làm (cert theo SPIFFE ID cấp bởi SPIRE), backend chỉ nhận kết nối
@@ -166,14 +169,14 @@ Checklist: *"mTLS/workload identity được đánh giá cho east-west hoặc sc
 gán được cho đúng cơ chế đó: P1 − P0 = chi phí JWT chặt + OPA; P2 − P1 = chi phí DPoP (kiểm chữ ký
 proof + cache `jti`). Theo đề bài, P1 gộp DPoP với OPA thì không tách được hai chi phí này.
 
-## 9. Bản đồ threat → cơ chế → bằng chứng (tới tuần 6)
+## 9. Bản đồ threat → cơ chế → bằng chứng (tới tuần 7)
 
 | Threat | SR | Cơ chế đã có | Bằng chứng | Còn hở |
 |---|---|---|---|---|
 | T1 token theft/replay | 04, 10 | P2: DPoP, `cnf.jkt`, cache `jti`, `iat` ±30 s; refresh token gắn khoá | `dpop-p2-2026-10-31.txt` (31/31), `dpop-token-2026-10-31.txt` | P0/P1 (có chủ đích); khoá client bị chiếm; cache mất khi restart |
 | T2 JWT validation failure | 02, 08 | allow-list `alg`, ghim `iss` + JWKS, `aud`/`exp`/`nbf`/`typ`, JWKS TTL | `auth-svc-unit-tests-2026-10-31.txt`, `gateway-p{0,1}-*` | khoá realm lộ (§8.1) |
 | T3 broken authentication | 03 | PKCE S256, `redirect_uri` chính xác, brute-force detection, `private_key_jwt` | `pkce-negative-*`, `client-credentials-*` | không MFA |
-| T4 broken authorization | 06 | OPA: RBAC route+method, ABAC `dept`/`tier`, mặc định từ chối; backend object-level (tuần 7) | `opa-test-2026-10-31.txt` (29/29), `authz-opa-p1-2026-10-31.txt` (24/24) | BOLA chờ tuần 7 |
+| T4 broken authorization | 06 | OPA: RBAC route+method, ABAC `dept`/`tier`, mặc định từ chối (BFLA); backend: `owner_id` + manager cùng phòng (BOLA), `salary_band` chỉ HR + allow-list trường ghi (API3), log `backend_object_authz` | `opa-test-2026-10-31.txt` (29/29), `authz-opa-p1-2026-11-09.txt` (24/24), `object-authz-2026-11-09.txt` (61/61), `backend-unit-tests-2026-11-09.txt` | lỗi logic backend; TB3 tin header theo vị trí mạng |
 | T5 gateway bypass | 01, 06 | backend không `ports:`, mạng internal, xoá `X-User` | `smoke-test-2026-10-31.txt` (20/20), `gateway-p1-*` | container bị chiếm trong mạng (§8.2) |
 | T7 KMS/key compromise | 08 | (tuần 9) Vault token quyền hẹp, audit device | — | khoá Keycloak phần mềm (§8.1) |
 | T8 policy compromise | 06, 11 | policy mount chỉ đọc, `policy_version` trong log, OPA không lộ API, fail closed | `failclosed-2026-10-31.txt` (11/11), smoke test kiểm thành viên mạng policy | ai sửa được git + restart OPA |
@@ -189,3 +192,6 @@ proof + cache `jti`). Theo đề bài, P1 gộp DPoP với OPA thì không tách
   (allow-list `alg`, `typ`, `crit`) hiện chứng minh bằng unit test.
 - DPoP không dùng `DPoP-Nonce` do server cấp (RFC 9449 §8–9); dựa vào cửa sổ `iat` + cache `jti`.
 - Decision log của OPA xoá `input.path` (SR-10); log auth-svc ghi route theo nhóm, không ghi path thật.
+- Backend trả **404** (không phải 403) khi đối tượng tồn tại nhưng người gọi không được xem — cùng
+  body với "không tồn tại", để dò ID không biết đối tượng nào có thật (RFC 9110 §15.5.4 cho phép).
+  Lý do thật (`not_owner`/`not_found`) chỉ có trong log backend.

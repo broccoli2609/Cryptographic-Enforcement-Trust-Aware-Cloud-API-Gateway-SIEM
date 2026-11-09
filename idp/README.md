@@ -37,8 +37,12 @@ Mapper `audience-topic09-api` đặt `aud = topic09-api`; gateway sẽ chỉ nh�
 | alice | employee | sales | standard | user thường; nạn nhân/kẻ tấn công trong test BOLA (tuần 7) |
 | bob | employee | engineering | premium | user thường khác phòng ban |
 | carol | employee, hr | hr | standard | được xem `salary_band` (property-level, tuần 7) |
-| dave | employee, manager | sales | premium | luật ABAC theo `dept` (tuần 5) |
+| dave | employee, manager | sales | premium | luật ABAC theo `dept` (tuần 5); manager chỉ thao tác đơn phòng sales (tuần 7) |
 | service-account-batch-worker | batch | — | — | token máy-với-máy |
+
+**`id` của user được ghim trong file** (tuần 7) nên claim `sub` giống nhau trên mọi máy import realm.
+Fixture của backend (`workloads/fixtures/*.json`) dùng các `sub` này làm `owner_id`/`user_id`;
+`workloads/fixtures/fixtures_test.go` kiểm hai bên khớp nhau. Đổi `id` ở đây thì phải đổi fixture.
 
 `dept` và `tier` được khai báo trong User Profile: **user xem được nhưng chỉ admin sửa được**.
 Nếu để user tự sửa qua Account Console, alice có thể tự đổi `tier` thành `premium` hoặc `dept`

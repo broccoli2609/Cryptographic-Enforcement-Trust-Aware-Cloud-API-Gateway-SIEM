@@ -1,0 +1,6 @@
+[
+  { "user_id": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "display_name": "Alice Nguyen", "dept": "sales", "title": "Sales Executive", "salary_band": "B2" },
+  { "user_id": "b2bc0860-cdf2-4e44-b756-5bfe2fb42bdf", "display_name": "Bob Tran", "dept": "engineering", "title": "Software Engineer", "salary_band": "B3" },
+  { "user_id": "ce1e374d-0253-4dad-92e9-3bb07a218ade", "display_name": "Carol Le", "dept": "hr", "title": "HR Specialist", "salary_band": "B3" },
+  { "user_id": "8020a828-ab0c-4eb8-843c-51d896fd4d45", "display_name": "Dave Pham", "dept": "sales", "title": "Sales Manager", "salary_band": "B4" }
+]

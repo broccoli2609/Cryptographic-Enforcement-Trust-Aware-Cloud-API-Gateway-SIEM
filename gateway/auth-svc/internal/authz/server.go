@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -138,8 +139,8 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 	return &authv3.CheckResponse{
 		Status: &rpcstatus.Status{Code: int32(codes.OK)},
 		HttpResponse: &authv3.CheckResponse_OkResponse{OkResponse: &authv3.OkHttpResponse{
-			// Danh tính đã kiểm, ghi đè mọi giá trị có sẵn (Envoy cũng đã xoá X-User của client).
-			Headers: []*corev3.HeaderValueOption{header("x-user", claims.Subject)},
+			// Danh tính đã kiểm, ghi đè mọi giá trị có sẵn (Envoy cũng đã xoá các header này của client).
+			Headers: identityHeaders(claims),
 			// Backend không cần token hay proof → không chuyển vào vùng backend (giảm chỗ lộ token).
 			HeadersToRemove: []string{"authorization", "dpop"},
 		}},
@@ -345,6 +346,56 @@ func routeGroup(path string) string {
 		}
 	}
 	return "other"
+}
+
+// maxRoles giới hạn số role gửi xuống backend (Keycloak chỉ cấp tối đa 4 role của realm này).
+const maxRoles = 8
+
+// identityHeaders dựng các header danh tính gửi xuống backend (TB3), CHỈ từ claim đã kiểm:
+//
+//	x-user        = sub
+//	x-user-roles  = role, nối bằng ","  (tuần 7: backend cần biết hr / manager / batch)
+//	x-user-dept   = dept                (tuần 7: manager chỉ thao tác trong phòng ban mình)
+//
+// Lý do gửi thêm role/dept (SR-06): gateway quyết định ở mức chức năng (route + method), còn
+// "đơn hàng 123 có phải của alice không", "người gọi có được thấy salary_band không" thì chỉ
+// backend biết, vì chỉ backend có dữ liệu của đối tượng.
+//
+// Role/dept chỉ được gửi nếu là chuỗi an toàn (safeAttr). Giá trị lạ bị BỎ chứ không sửa: bỏ
+// một role chỉ làm backend thấy ÍT quyền hơn (an toàn khi lỗi), và ai đặt được tên role chứa ","
+// hay xuống dòng trong IdP cũng không chèn thêm role vào header được.
+// tier không gửi: backend không dùng (ABAC tier đã xong ở OPA) — gửi tối thiểu.
+func identityHeaders(c *jwtverify.Claims) []*corev3.HeaderValueOption {
+	hs := []*corev3.HeaderValueOption{header("x-user", c.Subject)}
+	var roles []string
+	for _, r := range c.Roles {
+		if safeAttr(r) && !slices.Contains(roles, r) && len(roles) < maxRoles {
+			roles = append(roles, r)
+		}
+	}
+	slices.Sort(roles) // thứ tự cố định: dễ test, dễ đối chiếu log
+	if len(roles) > 0 {
+		hs = append(hs, header("x-user-roles", strings.Join(roles, ",")))
+	}
+	if safeAttr(c.Dept) {
+		hs = append(hs, header("x-user-dept", c.Dept))
+	}
+	return hs
+}
+
+// safeAttr: 1–32 ký tự, bắt đầu bằng chữ thường, chỉ gồm a-z 0-9 "-" "_".
+// Không dùng regexp để khỏi cấp phát cho mỗi request.
+func safeAttr(s string) bool {
+	if len(s) == 0 || len(s) > 32 || s[0] < 'a' || s[0] > 'z' {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
 
 func header(k, v string) *corev3.HeaderValueOption {

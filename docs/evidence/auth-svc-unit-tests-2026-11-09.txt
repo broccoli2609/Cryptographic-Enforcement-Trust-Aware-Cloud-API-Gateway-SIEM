@@ -1,0 +1,357 @@
+?   	topic09-lab/gateway/auth-svc/cmd/auth-svc	[no test files]
+=== RUN   TestP2AllowsBoundTokenWithValidProof
+--- PASS: TestP2AllowsBoundTokenWithValidProof (0.00s)
+=== RUN   TestP2Rejects
+=== RUN   TestP2Rejects/token_DPoP_gửi_bằng_scheme_Bearer
+=== RUN   TestP2Rejects/không_có_Authorization
+=== RUN   TestP2Rejects/token_bearer_thường_(typ=Bearer)_với_scheme_DPoP
+=== RUN   TestP2Rejects/token_typ=DPoP_nhưng_không_có_cnf.jkt
+=== RUN   TestP2Rejects/proof_replay
+=== RUN   TestP2Rejects/proof_ký_bằng_khoá_khác
+--- PASS: TestP2Rejects (0.00s)
+    --- PASS: TestP2Rejects/token_DPoP_gửi_bằng_scheme_Bearer (0.00s)
+    --- PASS: TestP2Rejects/không_có_Authorization (0.00s)
+    --- PASS: TestP2Rejects/token_bearer_thường_(typ=Bearer)_với_scheme_DPoP (0.00s)
+    --- PASS: TestP2Rejects/token_typ=DPoP_nhưng_không_có_cnf.jkt (0.00s)
+    --- PASS: TestP2Rejects/proof_replay (0.00s)
+    --- PASS: TestP2Rejects/proof_ký_bằng_khoá_khác (0.00s)
+=== RUN   TestP2LogsBothThumbprintsOnKeyMismatch
+--- PASS: TestP2LogsBothThumbprintsOnKeyMismatch (0.00s)
+=== RUN   TestP2CacheFullIs503
+--- PASS: TestP2CacheFullIs503 (0.00s)
+=== RUN   TestP2DoesNotCallPolicyWhenProofInvalid
+--- PASS: TestP2DoesNotCallPolicyWhenProofInvalid (0.00s)
+=== RUN   TestP2FailsClosedWhenDPoPNotConfigured
+--- PASS: TestP2FailsClosedWhenDPoPNotConfigured (0.00s)
+=== RUN   TestP1RejectsDPoPBoundTokenAsBearer
+--- PASS: TestP1RejectsDPoPBoundTokenAsBearer (0.00s)
+=== RUN   TestP1RejectsDPoPScheme
+--- PASS: TestP1RejectsDPoPScheme (0.00s)
+=== RUN   TestCheckFailsClosedOnMissingOrUnknownProfile
+--- PASS: TestCheckFailsClosedOnMissingOrUnknownProfile (0.00s)
+=== RUN   TestRequestURL
+--- PASS: TestRequestURL (0.00s)
+=== RUN   TestCheckSendsVerifiedClaimsToPolicy
+--- PASS: TestCheckSendsVerifiedClaimsToPolicy (0.00s)
+=== RUN   TestCheckIgnoresClientIdentityHeadersForPolicy
+--- PASS: TestCheckIgnoresClientIdentityHeadersForPolicy (0.00s)
+=== RUN   TestCheckDeniesWith403WhenPolicyDenies
+--- PASS: TestCheckDeniesWith403WhenPolicyDenies (0.00s)
+=== RUN   TestCheckFailsClosedWhenPolicyErrors
+=== RUN   TestCheckFailsClosedWhenPolicyErrors/policy_unavailable
+=== RUN   TestCheckFailsClosedWhenPolicyErrors/policy_bad_response
+=== RUN   TestCheckFailsClosedWhenPolicyErrors/policy_undefined
+=== RUN   TestCheckFailsClosedWhenPolicyErrors/lạ
+--- PASS: TestCheckFailsClosedWhenPolicyErrors (0.00s)
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/policy_unavailable (0.00s)
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/policy_bad_response (0.00s)
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/policy_undefined (0.00s)
+    --- PASS: TestCheckFailsClosedWhenPolicyErrors/lạ (0.00s)
+=== RUN   TestCheckFailsClosedWhenPolicyNotConfigured
+--- PASS: TestCheckFailsClosedWhenPolicyNotConfigured (0.00s)
+=== RUN   TestCheckDoesNotCallPolicyForInvalidToken
+--- PASS: TestCheckDoesNotCallPolicyForInvalidToken (0.00s)
+=== RUN   TestPathOnly
+--- PASS: TestPathOnly (0.00s)
+=== RUN   TestCheckAllowsValidTokenAndSetsIdentity
+--- PASS: TestCheckAllowsValidTokenAndSetsIdentity (0.00s)
+=== RUN   TestIdentityHeadersDropUnsafeValues
+--- PASS: TestIdentityHeadersDropUnsafeValues (0.00s)
+=== RUN   TestCheckDeniesWhenNoBearerToken
+=== RUN   TestCheckDeniesWhenNoBearerToken/hai_header_Authorization_gộp
+=== RUN   TestCheckDeniesWhenNoBearerToken/không_có_Authorization
+=== RUN   TestCheckDeniesWhenNoBearerToken/scheme_Basic
+=== RUN   TestCheckDeniesWhenNoBearerToken/Bearer_rỗng
+--- PASS: TestCheckDeniesWhenNoBearerToken (0.00s)
+    --- PASS: TestCheckDeniesWhenNoBearerToken/hai_header_Authorization_gộp (0.00s)
+    --- PASS: TestCheckDeniesWhenNoBearerToken/không_có_Authorization (0.00s)
+    --- PASS: TestCheckDeniesWhenNoBearerToken/scheme_Basic (0.00s)
+    --- PASS: TestCheckDeniesWhenNoBearerToken/Bearer_rỗng (0.00s)
+=== RUN   TestCheckDeniesInvalidTokenWith401AndWWWAuthenticate
+--- PASS: TestCheckDeniesInvalidTokenWith401AndWWWAuthenticate (0.00s)
+=== RUN   TestCheckFailsClosedWhenJWKSUnavailable
+--- PASS: TestCheckFailsClosedWhenJWKSUnavailable (0.00s)
+=== RUN   TestDecisionLogNeverContainsTokenOrRealPath
+--- PASS: TestDecisionLogNeverContainsTokenOrRealPath (0.00s)
+=== RUN   TestRouteGroup
+--- PASS: TestRouteGroup (0.00s)
+PASS
+ok  	topic09-lab/gateway/auth-svc/internal/authz	0.010s
+=== RUN   TestVerifyAcceptsValidProofs
+=== RUN   TestVerifyAcceptsValidProofs/ES256
+=== RUN   TestVerifyAcceptsValidProofs/EdDSA
+=== RUN   TestVerifyAcceptsValidProofs/RS256
+--- PASS: TestVerifyAcceptsValidProofs (0.10s)
+    --- PASS: TestVerifyAcceptsValidProofs/ES256 (0.00s)
+    --- PASS: TestVerifyAcceptsValidProofs/EdDSA (0.00s)
+    --- PASS: TestVerifyAcceptsValidProofs/RS256 (0.00s)
+=== RUN   TestVerifyRejects
+=== RUN   TestVerifyRejects/(1)_không_có_header_DPoP
+=== RUN   TestVerifyRejects/(1)_hai_header_DPoP_(Envoy_gộp_bằng_dấu_phẩy)
+=== RUN   TestVerifyRejects/proof_quá_lớn
+=== RUN   TestVerifyRejects/(2)_không_phải_JWT_3_phần
+=== RUN   TestVerifyRejects/(2)_header_không_phải_base64url
+=== RUN   TestVerifyRejects/(4)_typ_=_JWT
+=== RUN   TestVerifyRejects/(4)_thiếu_typ
+=== RUN   TestVerifyRejects/(5)_alg_none,_không_chữ_ký
+=== RUN   TestVerifyRejects/(5)_alg_HS256_(đối_xứng)
+=== RUN   TestVerifyRejects/(5)_RS256_ngoài_allow-list
+=== RUN   TestVerifyRejects/crit_lạ
+=== RUN   TestVerifyRejects/(2)_thiếu_chữ_ký
+=== RUN   TestVerifyRejects/(7)_thiếu_jwk
+=== RUN   TestVerifyRejects/(7)_jwk_chứa_khoá_riêng_d
+=== RUN   TestVerifyRejects/(7)_jwk_RSA_cho_alg_ES256
+=== RUN   TestVerifyRejects/(7)_jwk_crv_P-384_cho_ES256
+=== RUN   TestVerifyRejects/(7)_điểm_không_nằm_trên_P-256_(invalid_curve)
+=== RUN   TestVerifyRejects/(7)_x_có_padding_'='
+=== RUN   TestVerifyRejects/(12)_token_đánh_cắp_+_proof_ký_bằng_khoá_của_kẻ_tấn_công
+=== RUN   TestVerifyRejects/(12)_token_không_gắn_khoá_(cnf.jkt_rỗng)
+=== RUN   TestVerifyRejects/(6)_chữ_ký_bị_lật_1_bit
+=== RUN   TestVerifyRejects/(6)_mang_jwk_của_chủ_token_nhưng_ký_bằng_khoá_kẻ_tấn_công
+=== RUN   TestVerifyRejects/(3)_thiếu_jti
+=== RUN   TestVerifyRejects/(3)_thiếu_htm
+=== RUN   TestVerifyRejects/(3)_thiếu_htu
+=== RUN   TestVerifyRejects/(3)_thiếu_iat
+=== RUN   TestVerifyRejects/(3)_thiếu_ath_khi_có_access_token
+=== RUN   TestVerifyRejects/iat_là_chuỗi
+=== RUN   TestVerifyRejects/jti_quá_dài
+=== RUN   TestVerifyRejects/(8)_htm_POST_cho_request_GET
+=== RUN   TestVerifyRejects/(8)_htm_chữ_thường
+=== RUN   TestVerifyRejects/(9)_htu_khác_path
+=== RUN   TestVerifyRejects/(9)_htu_khác_host
+=== RUN   TestVerifyRejects/(9)_htu_http_thay_vì_https
+=== RUN   TestVerifyRejects/(9)_htu_khác_cổng_(proof_cho_P1_đem_sang_P2)
+=== RUN   TestVerifyRejects/(9)_htu_tương_đối
+=== RUN   TestVerifyRejects/(11)_iat_cũ_31_s
+=== RUN   TestVerifyRejects/(11)_iat_tương_lai_31_s
+=== RUN   TestVerifyRejects/(12)_ath_của_token_khác
+--- PASS: TestVerifyRejects (0.16s)
+    --- PASS: TestVerifyRejects/(1)_không_có_header_DPoP (0.00s)
+    --- PASS: TestVerifyRejects/(1)_hai_header_DPoP_(Envoy_gộp_bằng_dấu_phẩy) (0.00s)
+    --- PASS: TestVerifyRejects/proof_quá_lớn (0.00s)
+    --- PASS: TestVerifyRejects/(2)_không_phải_JWT_3_phần (0.00s)
+    --- PASS: TestVerifyRejects/(2)_header_không_phải_base64url (0.00s)
+    --- PASS: TestVerifyRejects/(4)_typ_=_JWT (0.00s)
+    --- PASS: TestVerifyRejects/(4)_thiếu_typ (0.00s)
+    --- PASS: TestVerifyRejects/(5)_alg_none,_không_chữ_ký (0.00s)
+    --- PASS: TestVerifyRejects/(5)_alg_HS256_(đối_xứng) (0.00s)
+    --- PASS: TestVerifyRejects/(5)_RS256_ngoài_allow-list (0.04s)
+    --- PASS: TestVerifyRejects/crit_lạ (0.00s)
+    --- PASS: TestVerifyRejects/(2)_thiếu_chữ_ký (0.00s)
+    --- PASS: TestVerifyRejects/(7)_thiếu_jwk (0.00s)
+    --- PASS: TestVerifyRejects/(7)_jwk_chứa_khoá_riêng_d (0.00s)
+    --- PASS: TestVerifyRejects/(7)_jwk_RSA_cho_alg_ES256 (0.11s)
+    --- PASS: TestVerifyRejects/(7)_jwk_crv_P-384_cho_ES256 (0.00s)
+    --- PASS: TestVerifyRejects/(7)_điểm_không_nằm_trên_P-256_(invalid_curve) (0.00s)
+    --- PASS: TestVerifyRejects/(7)_x_có_padding_'=' (0.00s)
+    --- PASS: TestVerifyRejects/(12)_token_đánh_cắp_+_proof_ký_bằng_khoá_của_kẻ_tấn_công (0.00s)
+    --- PASS: TestVerifyRejects/(12)_token_không_gắn_khoá_(cnf.jkt_rỗng) (0.00s)
+    --- PASS: TestVerifyRejects/(6)_chữ_ký_bị_lật_1_bit (0.00s)
+    --- PASS: TestVerifyRejects/(6)_mang_jwk_của_chủ_token_nhưng_ký_bằng_khoá_kẻ_tấn_công (0.00s)
+    --- PASS: TestVerifyRejects/(3)_thiếu_jti (0.00s)
+    --- PASS: TestVerifyRejects/(3)_thiếu_htm (0.00s)
+    --- PASS: TestVerifyRejects/(3)_thiếu_htu (0.00s)
+    --- PASS: TestVerifyRejects/(3)_thiếu_iat (0.00s)
+    --- PASS: TestVerifyRejects/(3)_thiếu_ath_khi_có_access_token (0.00s)
+    --- PASS: TestVerifyRejects/iat_là_chuỗi (0.00s)
+    --- PASS: TestVerifyRejects/jti_quá_dài (0.00s)
+    --- PASS: TestVerifyRejects/(8)_htm_POST_cho_request_GET (0.00s)
+    --- PASS: TestVerifyRejects/(8)_htm_chữ_thường (0.00s)
+    --- PASS: TestVerifyRejects/(9)_htu_khác_path (0.00s)
+    --- PASS: TestVerifyRejects/(9)_htu_khác_host (0.00s)
+    --- PASS: TestVerifyRejects/(9)_htu_http_thay_vì_https (0.00s)
+    --- PASS: TestVerifyRejects/(9)_htu_khác_cổng_(proof_cho_P1_đem_sang_P2) (0.00s)
+    --- PASS: TestVerifyRejects/(9)_htu_tương_đối (0.00s)
+    --- PASS: TestVerifyRejects/(11)_iat_cũ_31_s (0.00s)
+    --- PASS: TestVerifyRejects/(11)_iat_tương_lai_31_s (0.00s)
+    --- PASS: TestVerifyRejects/(12)_ath_của_token_khác (0.00s)
+=== RUN   TestVerifyRejectsSmallRSAKey
+--- PASS: TestVerifyRejectsSmallRSAKey (0.02s)
+=== RUN   TestVerifyAcceptsIATInsideWindow
+--- PASS: TestVerifyAcceptsIATInsideWindow (0.00s)
+=== RUN   TestVerifyNormalizesHTU
+--- PASS: TestVerifyNormalizesHTU (0.00s)
+=== RUN   TestVerifyAcceptsTypCaseInsensitive
+--- PASS: TestVerifyAcceptsTypCaseInsensitive (0.00s)
+=== RUN   TestVerifyRejectsReplay
+--- PASS: TestVerifyRejectsReplay (0.00s)
+=== RUN   TestVerifyDoesNotStoreJTIOfFailedProof
+--- PASS: TestVerifyDoesNotStoreJTIOfFailedProof (0.00s)
+=== RUN   TestVerifySameJTIDifferentKeys
+--- PASS: TestVerifySameJTIDifferentKeys (0.00s)
+=== RUN   TestVerifyOldProofRejectedByIATAfterWindow
+--- PASS: TestVerifyOldProofRejectedByIATAfterWindow (0.00s)
+=== RUN   TestVerifyCacheFullRejects
+--- PASS: TestVerifyCacheFullRejects (0.00s)
+=== RUN   TestNewRejectsDangerousConfig
+--- PASS: TestNewRejectsDangerousConfig (0.00s)
+=== RUN   TestThumbprintRFC7638Example
+--- PASS: TestThumbprintRFC7638Example (0.00s)
+=== RUN   TestReplayCacheDetectsReuse
+--- PASS: TestReplayCacheDetectsReuse (0.00s)
+=== RUN   TestReplayCacheForgetsExpiredEntries
+--- PASS: TestReplayCacheForgetsExpiredEntries (0.00s)
+=== RUN   TestReplayCacheFullRejectsAndKeepsUnexpired
+--- PASS: TestReplayCacheFullRejectsAndKeepsUnexpired (0.00s)
+=== RUN   TestReplayCacheFullSweepsExpiredFirst
+--- PASS: TestReplayCacheFullSweepsExpiredFirst (0.00s)
+=== RUN   TestReplayCacheConcurrentSameKey
+--- PASS: TestReplayCacheConcurrentSameKey (0.00s)
+PASS
+ok  	topic09-lab/gateway/auth-svc/internal/dpop	0.279s
+=== RUN   TestParseJWKSKeepsOnlySigningKeys
+--- PASS: TestParseJWKSKeepsOnlySigningKeys (0.32s)
+=== RUN   TestParseJWKSRejectsWeakOrInvalidKeys
+=== RUN   TestParseJWKSRejectsWeakOrInvalidKeys/RSA_1024_bit
+=== RUN   TestParseJWKSRejectsWeakOrInvalidKeys/điểm_EC_ngoài_đường_cong
+=== RUN   TestParseJWKSRejectsWeakOrInvalidKeys/không_có_kid
+--- PASS: TestParseJWKSRejectsWeakOrInvalidKeys (0.00s)
+    --- PASS: TestParseJWKSRejectsWeakOrInvalidKeys/RSA_1024_bit (0.00s)
+    --- PASS: TestParseJWKSRejectsWeakOrInvalidKeys/điểm_EC_ngoài_đường_cong (0.00s)
+    --- PASS: TestParseJWKSRejectsWeakOrInvalidKeys/không_có_kid (0.00s)
+=== RUN   TestJWKSCacheServesFromCacheWithinTTL
+--- PASS: TestJWKSCacheServesFromCacheWithinTTL (0.00s)
+=== RUN   TestJWKSCacheRefetchesAfterTTL
+--- PASS: TestJWKSCacheRefetchesAfterTTL (0.00s)
+=== RUN   TestJWKSCacheRefetchesOnUnknownKidForKeyRotation
+--- PASS: TestJWKSCacheRefetchesOnUnknownKidForKeyRotation (0.00s)
+=== RUN   TestJWKSCacheRateLimitsRefetchForUnknownKids
+--- PASS: TestJWKSCacheRateLimitsRefetchForUnknownKids (0.00s)
+=== RUN   TestJWKSCacheFailsClosedWhenNeverFetched
+--- PASS: TestJWKSCacheFailsClosedWhenNeverFetched (0.00s)
+=== RUN   TestJWKSCacheStaleGraceThenFailsClosed
+--- PASS: TestJWKSCacheStaleGraceThenFailsClosed (0.00s)
+=== RUN   TestJWKSCacheDoesNotFollowRedirects
+--- PASS: TestJWKSCacheDoesNotFollowRedirects (0.00s)
+=== RUN   TestVerifyAcceptsValidKeycloakAccessToken
+--- PASS: TestVerifyAcceptsValidKeycloakAccessToken (0.00s)
+=== RUN   TestVerifyAcceptsEdgeCasesWithinRules
+=== RUN   TestVerifyAcceptsEdgeCasesWithinRules/aud_là_mảng_có_chứa_topic09-api
+=== RUN   TestVerifyAcceptsEdgeCasesWithinRules/exp_vừa_qua_10_s_(trong_lệch_30_s)
+=== RUN   TestVerifyAcceptsEdgeCasesWithinRules/nbf_sớm_hơn_10_s_nữa_(trong_lệch_30_s)
+--- PASS: TestVerifyAcceptsEdgeCasesWithinRules (0.01s)
+    --- PASS: TestVerifyAcceptsEdgeCasesWithinRules/aud_là_mảng_có_chứa_topic09-api (0.00s)
+    --- PASS: TestVerifyAcceptsEdgeCasesWithinRules/exp_vừa_qua_10_s_(trong_lệch_30_s) (0.00s)
+    --- PASS: TestVerifyAcceptsEdgeCasesWithinRules/nbf_sớm_hơn_10_s_nữa_(trong_lệch_30_s) (0.00s)
+=== RUN   TestVerifyDPoPBoundTokenByProfile
+--- PASS: TestVerifyDPoPBoundTokenByProfile (0.00s)
+=== RUN   TestVerifyBearerTokenHasNoCnf
+--- PASS: TestVerifyBearerTokenHasNoCnf (0.00s)
+=== RUN   TestVerifyAcceptsES256WhenAllowListed
+--- PASS: TestVerifyAcceptsES256WhenAllowListed (0.00s)
+=== RUN   TestVerifyRejectsBadTokens
+=== RUN   TestVerifyRejectsBadTokens/alg_none_có_chữ_ký_giả
+=== RUN   TestVerifyRejectsBadTokens/alg_none_bỏ_hẳn_chữ_ký
+=== RUN   TestVerifyRejectsBadTokens/alg_confusion_HS256_ký_bằng_public_key_PEM_của_realm
+=== RUN   TestVerifyRejectsBadTokens/ES256_chữ_ký_đúng_nhưng_ngoài_allow-list_RS256
+=== RUN   TestVerifyRejectsBadTokens/alg_viết_thường_rs256
+=== RUN   TestVerifyRejectsBadTokens/header_crit_không_hỗ_trợ
+=== RUN   TestVerifyRejectsBadTokens/thiếu_kid
+=== RUN   TestVerifyRejectsBadTokens/kid_không_có_trong_JWKS
+=== RUN   TestVerifyRejectsBadTokens/RS256_nhưng_kid_trỏ_tới_khoá_EC_(JWK_có_alg_ES256)
+=== RUN   TestVerifyRejectsBadTokens/RS256_nhưng_kid_trỏ_tới_khoá_EC_(JWK_không_ghi_alg)
+=== RUN   TestVerifyRejectsBadTokens/jku_trỏ_tới_JWKS_của_kẻ_tấn_công_bị_bỏ_qua
+=== RUN   TestVerifyRejectsBadTokens/jwk_nhúng_trong_header_bị_bỏ_qua
+=== RUN   TestVerifyRejectsBadTokens/ký_bằng_khoá_RSA_của_kẻ_tấn_công
+=== RUN   TestVerifyRejectsBadTokens/payload_bị_sửa_sau_khi_ký_(tự_nâng_role)
+=== RUN   TestVerifyRejectsBadTokens/chữ_ký_bị_lật_1_bit
+=== RUN   TestVerifyRejectsBadTokens/sai_iss_(realm_master)
+=== RUN   TestVerifyRejectsBadTokens/sai_aud_(account)
+=== RUN   TestVerifyRejectsBadTokens/aud_là_mảng_không_có_topic09-api
+=== RUN   TestVerifyRejectsBadTokens/thiếu_aud
+=== RUN   TestVerifyRejectsBadTokens/hết_hạn_quá_lệch_30_s
+=== RUN   TestVerifyRejectsBadTokens/thiếu_exp
+=== RUN   TestVerifyRejectsBadTokens/nbf_ở_tương_lai_quá_lệch_30_s
+=== RUN   TestVerifyRejectsBadTokens/iat_ở_tương_lai_quá_lệch_30_s
+=== RUN   TestVerifyRejectsBadTokens/ID_token_(typ=ID)_thay_access_token
+=== RUN   TestVerifyRejectsBadTokens/refresh_token_(typ=Refresh)_thay_access_token
+=== RUN   TestVerifyRejectsBadTokens/thiếu_typ
+=== RUN   TestVerifyRejectsBadTokens/thiếu_sub
+=== RUN   TestVerifyRejectsBadTokens/chỉ_có_2_phần
+=== RUN   TestVerifyRejectsBadTokens/header_có_padding_=_(không_phải_base64url_chặt)
+=== RUN   TestVerifyRejectsBadTokens/header_không_phải_JSON
+=== RUN   TestVerifyRejectsBadTokens/token_dài_hơn_8_KiB
+--- PASS: TestVerifyRejectsBadTokens (0.04s)
+    --- PASS: TestVerifyRejectsBadTokens/alg_none_có_chữ_ký_giả (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/alg_none_bỏ_hẳn_chữ_ký (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/alg_confusion_HS256_ký_bằng_public_key_PEM_của_realm (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/ES256_chữ_ký_đúng_nhưng_ngoài_allow-list_RS256 (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/alg_viết_thường_rs256 (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/header_crit_không_hỗ_trợ (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_kid (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/kid_không_có_trong_JWKS (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/RS256_nhưng_kid_trỏ_tới_khoá_EC_(JWK_có_alg_ES256) (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/RS256_nhưng_kid_trỏ_tới_khoá_EC_(JWK_không_ghi_alg) (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/jku_trỏ_tới_JWKS_của_kẻ_tấn_công_bị_bỏ_qua (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/jwk_nhúng_trong_header_bị_bỏ_qua (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/ký_bằng_khoá_RSA_của_kẻ_tấn_công (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/payload_bị_sửa_sau_khi_ký_(tự_nâng_role) (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/chữ_ký_bị_lật_1_bit (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/sai_iss_(realm_master) (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/sai_aud_(account) (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/aud_là_mảng_không_có_topic09-api (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_aud (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/hết_hạn_quá_lệch_30_s (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_exp (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/nbf_ở_tương_lai_quá_lệch_30_s (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/iat_ở_tương_lai_quá_lệch_30_s (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/ID_token_(typ=ID)_thay_access_token (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/refresh_token_(typ=Refresh)_thay_access_token (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_typ (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/thiếu_sub (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/chỉ_có_2_phần (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/header_có_padding_=_(không_phải_base64url_chặt) (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/header_không_phải_JSON (0.00s)
+    --- PASS: TestVerifyRejectsBadTokens/token_dài_hơn_8_KiB (0.00s)
+=== RUN   TestVerifyRejectsES256WithWrongSignatureLength
+--- PASS: TestVerifyRejectsES256WithWrongSignatureLength (0.00s)
+=== RUN   TestVerifyRejectsES256SignedByAttacker
+--- PASS: TestVerifyRejectsES256SignedByAttacker (0.00s)
+=== RUN   TestVerifyFailsClosedWhenJWKSUnavailable
+--- PASS: TestVerifyFailsClosedWhenJWKSUnavailable (0.00s)
+=== RUN   TestNewRejectsDangerousAllowList
+--- PASS: TestNewRejectsDangerousAllowList (0.00s)
+=== RUN   TestErrorKeepsHeaderValuesShortForLogs
+--- PASS: TestErrorKeepsHeaderValuesShortForLogs (0.00s)
+PASS
+ok  	topic09-lab/gateway/auth-svc/internal/jwtverify	0.400s
+=== RUN   TestDecideSendsInputAndParsesAllow
+--- PASS: TestDecideSendsInputAndParsesAllow (0.01s)
+=== RUN   TestDecideParsesDeny
+--- PASS: TestDecideParsesDeny (0.00s)
+=== RUN   TestDecideOmitsEmptyAttributesAndSendsEmptyRoles
+--- PASS: TestDecideOmitsEmptyAttributesAndSendsEmptyRoles (0.00s)
+=== RUN   TestDecideFailsClosed
+=== RUN   TestDecideFailsClosed/OPA_trả_{}_(chưa_nạp_policy_/_sai_đường_dẫn)
+=== RUN   TestDecideFailsClosed/result_null
+=== RUN   TestDecideFailsClosed/result_thiếu_allow
+=== RUN   TestDecideFailsClosed/allow_là_chuỗi_"true"
+=== RUN   TestDecideFailsClosed/result_là_true_trần_(policy_trả_boolean,_không_có_metadata)
+=== RUN   TestDecideFailsClosed/thiếu_policy_version
+=== RUN   TestDecideFailsClosed/JSON_hỏng
+=== RUN   TestDecideFailsClosed/HTTP_500
+=== RUN   TestDecideFailsClosed/HTTP_400_(input_bị_OPA_từ_chối)
+=== RUN   TestDecideFailsClosed/redirect_sang_chỗ_khác_(không_theo)
+=== RUN   TestDecideFailsClosed/body_quá_lớn
+=== RUN   TestDecideFailsClosed/OPA_treo_quá_timeout
+--- PASS: TestDecideFailsClosed (2.01s)
+    --- PASS: TestDecideFailsClosed/OPA_trả_{}_(chưa_nạp_policy_/_sai_đường_dẫn) (0.00s)
+    --- PASS: TestDecideFailsClosed/result_null (0.00s)
+    --- PASS: TestDecideFailsClosed/result_thiếu_allow (0.00s)
+    --- PASS: TestDecideFailsClosed/allow_là_chuỗi_"true" (0.00s)
+    --- PASS: TestDecideFailsClosed/result_là_true_trần_(policy_trả_boolean,_không_có_metadata) (0.00s)
+    --- PASS: TestDecideFailsClosed/thiếu_policy_version (0.00s)
+    --- PASS: TestDecideFailsClosed/JSON_hỏng (0.00s)
+    --- PASS: TestDecideFailsClosed/HTTP_500 (0.00s)
+    --- PASS: TestDecideFailsClosed/HTTP_400_(input_bị_OPA_từ_chối) (0.00s)
+    --- PASS: TestDecideFailsClosed/redirect_sang_chỗ_khác_(không_theo) (0.00s)
+    --- PASS: TestDecideFailsClosed/body_quá_lớn (0.00s)
+    --- PASS: TestDecideFailsClosed/OPA_treo_quá_timeout (2.00s)
+=== RUN   TestDecideFailsClosedWhenOPADown
+--- PASS: TestDecideFailsClosedWhenOPADown (0.00s)
+=== RUN   TestNewClientRejectsBadConfig
+--- PASS: TestNewClientRejectsBadConfig (0.00s)
+=== RUN   TestClientIgnoresProxyEnv
+--- PASS: TestClientIgnoresProxyEnv (0.00s)
+PASS
+ok  	topic09-lab/gateway/auth-svc/internal/policy	2.031s

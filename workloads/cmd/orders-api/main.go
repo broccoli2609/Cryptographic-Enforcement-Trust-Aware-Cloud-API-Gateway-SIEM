@@ -1,4 +1,4 @@
-// Lệnh orders-api: backend rỗng của lab Topic 09.
+// Lệnh orders-api: backend đơn hàng của lab Topic 09 (kiểm quyền mức đối tượng từ tuần 7).
 //
 // Chạy server:          orders-api
 // Kiểm sức khoẻ (Docker): orders-api -healthcheck
@@ -8,6 +8,8 @@ import (
 	"flag"
 	"os"
 
+	"topic09-lab/workloads/fixtures"
+	"topic09-lab/workloads/internal/orders"
 	"topic09-lab/workloads/internal/service"
 )
 
@@ -21,7 +23,12 @@ func main() {
 	}
 
 	logger := service.NewLogger(os.Stdout, cfg.Name)
-	if err := service.Run(cfg, service.NewHandler(cfg.Name, "/orders", logger), logger); err != nil {
+	store, err := orders.NewStore(fixtures.Orders)
+	if err != nil {
+		logger.Error("fixture invalid", "error", err.Error())
+		os.Exit(1)
+	}
+	if err := service.Run(cfg, service.NewHandler(cfg.Name, "/orders", logger, store.Register), logger); err != nil {
 		logger.Error("server stopped", "error", err.Error())
 		os.Exit(1)
 	}
