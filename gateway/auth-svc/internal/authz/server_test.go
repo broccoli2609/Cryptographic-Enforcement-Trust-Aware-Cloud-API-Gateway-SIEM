@@ -80,12 +80,48 @@ func TestCheckAllowsValidTokenAndSetsIdentity(t *testing.T) {
 	if ok == nil {
 		t.Fatalf("token hợp lệ phải được cho qua, nhận %v", resp)
 	}
-	if len(ok.GetHeaders()) != 1 || ok.GetHeaders()[0].GetHeader().GetKey() != "x-user" ||
-		ok.GetHeaders()[0].GetHeader().GetValue() != "a6dd1608-sub" {
-		t.Fatalf("phải đặt x-user = sub, nhận %v", ok.GetHeaders())
+	// Tuần 7: đúng 3 header danh tính, giá trị lấy từ claim đã kiểm (không có tier).
+	got := map[string]string{}
+	for _, h := range ok.GetHeaders() {
+		got[h.GetHeader().GetKey()] = h.GetHeader().GetValue()
+	}
+	want := map[string]string{"x-user": "a6dd1608-sub", "x-user-roles": "employee", "x-user-dept": "sales"}
+	if len(got) != len(want) || len(ok.GetHeaders()) != len(want) {
+		t.Fatalf("header danh tính: nhận %v, muốn %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("%s = %q, muốn %q", k, got[k], v)
+		}
 	}
 	if rm := ok.GetHeadersToRemove(); len(rm) != 2 || rm[0] != "authorization" || rm[1] != "dpop" {
 		t.Fatalf("phải xoá Authorization và DPoP trước khi vào backend, nhận %v", rm)
+	}
+}
+
+// Tuần 7: role/dept lạ (dấu phẩy, xuống dòng, chữ hoa, quá dài) bị BỎ — không chèn được role
+// thứ hai hay header mới vào request gửi backend. Bỏ role = ít quyền hơn = an toàn khi lỗi.
+func TestIdentityHeadersDropUnsafeValues(t *testing.T) {
+	hs := identityHeaders(&jwtverify.Claims{
+		Subject: "sub-1",
+		Roles:   []string{"manager", "hr,admin", "Employee", "x\r\nx-user: admin", "batch", "manager", strings.Repeat("a", 33)},
+		Dept:    "sales\r\nx-user-roles: hr",
+	})
+	got := map[string]string{}
+	for _, h := range hs {
+		got[h.GetHeader().GetKey()] = h.GetHeader().GetValue()
+	}
+	if got["x-user-roles"] != "batch,manager" {
+		t.Fatalf("x-user-roles = %q, muốn \"batch,manager\" (bỏ giá trị lạ, bỏ trùng, xếp thứ tự)", got["x-user-roles"])
+	}
+	if _, ok := got["x-user-dept"]; ok {
+		t.Fatalf("dept chứa CRLF phải bị bỏ, nhận %q", got["x-user-dept"])
+	}
+
+	// Không có role nào an toàn → không gửi header (backend coi là không có role).
+	hs = identityHeaders(&jwtverify.Claims{Subject: "sub-2", Roles: []string{"A,B"}})
+	if len(hs) != 1 || hs[0].GetHeader().GetKey() != "x-user" {
+		t.Fatalf("chỉ được có x-user, nhận %v", hs)
 	}
 }
 
