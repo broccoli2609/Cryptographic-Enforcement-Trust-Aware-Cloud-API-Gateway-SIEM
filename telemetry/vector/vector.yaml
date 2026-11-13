@@ -1,0 +1,350 @@
+# Vector — đường ống telemetry của lab Topic 09 (tuần 8 T6). Kiểm cú pháp:  make vector-validate
+#
+#   5 nguồn (log stdout/stderr của container, đọc qua Docker)
+#     src_envoy · src_auth_svc · src_opa · src_backend (orders-api + profile-api) · src_keycloak
+#        │
+#        ▼  norm_*   mỗi nguồn một bước: chỉ nhận dòng JSON là SỰ KIỆN BẢO MẬT (log vận hành,
+#        │           /healthz bị bỏ), đổi về tên trường của telemetry/schema.json
+#        ▼  seal     bước chung cuối cùng — mọi sự kiện đều phải đi qua:
+#        │             1. giả danh: principal → principal_hash, aud → aud_hash (HMAC-SHA256)
+#        │             2. allow-list: chỉ giữ trường có trong schema
+#        │             3. kiểm dạng và che giá trị giống token / khoá / mã uỷ quyền
+#        ▼
+#      OpenSearch  index topic09-events (mapping "dynamic: strict" — lớp chặn thứ hai)
+#
+# Ba điều về bảo mật (SR-10, TB5):
+#   - "Nguồn" của sự kiện là CONTAINER mà Docker đọc log, không phải trường "service" trong
+#     dòng log. Một backend bị chiếm không tự xưng là auth-svc trong SIEM được.
+#   - Khoá HMAC đọc từ biến môi trường lúc chạy (get_env_var), không nằm trong file này.
+#   - Vector đọc log qua /var/run/docker.sock (mount chỉ đọc). Ai điều khiển được Vector thì
+#     gọi được Docker API — rủi ro còn lại, đã ghi ở T11/TB6.
+
+data_dir: /var/lib/vector
+
+# API nội bộ chỉ để Docker healthcheck gọi /health; nghe trên loopback của container.
+api:
+  enabled: true
+  address: "127.0.0.1:8686"
+
+# ============================================================================ 5 nguồn
+# Tên container = <project>-<service>-<số>; include_containers so khớp theo tiền tố.
+sources:
+  src_envoy:
+    type: docker_logs
+    include_containers: ["topic09-lab-envoy-"]
+  src_auth_svc:
+    type: docker_logs
+    include_containers: ["topic09-lab-auth-svc-"]
+  src_opa:
+    type: docker_logs
+    include_containers: ["topic09-lab-opa-"]
+  src_backend:
+    type: docker_logs
+    include_containers: ["topic09-lab-orders-api-", "topic09-lab-profile-api-"]
+  src_keycloak:
+    type: docker_logs
+    include_containers: ["topic09-lab-keycloak-"]
+
+transforms:
+  # ========================================================================== Envoy (PEP)
+  # Access log JSON, mỗi request một dòng (gateway/envoy.yaml).
+  norm_envoy:
+    type: remap
+    inputs: [src_envoy]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      if r.service != "envoy" { abort }   # log khởi động của Envoy không phải JSON access log
+
+      port = to_int(r.listener_port) ?? 0
+      profile = if port == 8443 { "p1" } else if port == 8444 { "p0" } else if port == 8445 { "p2" } else { null }
+
+      # Envoy là nơi THI HÀNH: suy quyết định từ response_code_details.
+      #   jwt_authn_access_denied / ext_authz_denied / ext_authz_error → gateway chặn
+      #   via_upstream → request đã tới backend (mã HTTP là của backend)
+      # Không dùng upstream_cluster: nó chỉ là "route đã chọn", có cả ở request bị chặn.
+      details = to_string(r.response_code_details) ?? ""
+      decision = null
+      if starts_with(details, "jwt_authn_access_denied") || starts_with(details, "ext_authz_denied") || starts_with(details, "ext_authz_error") {
+        decision = "deny"
+      } else if details == "via_upstream" {
+        decision = "allow"
+      }
+
+      . = {
+        "source": "envoy",
+        "event_type": "gateway_access",
+        "received": .timestamp,
+        "event_time": r.event_time,
+        "request_id": r.request_id,
+        "principal": r.principal,
+        "client_id": r.client_id,
+        "profile": profile,
+        "method": r.method,
+        "route_group": r.route_group,
+        "decision": decision,
+        "decision_reason": null,
+        "status_code": r.status_code,
+        "duration_ms": r.duration_ms,
+        "listener_port": r.listener_port,
+        "upstream_cluster": null,
+        "response_flags": r.response_flags,
+        "response_code_details": r.response_code_details,
+        "tls_version": r.tls_version,
+        "tls_cipher": r.tls_cipher,
+        "tls_peer_fingerprint": r.tls_peer_fingerprint
+      }
+      if decision != null { .decision_reason = details }
+      if decision != "deny" { .upstream_cluster = r.upstream_cluster }
+      if .route_group == null { .route_group = "other" }
+
+  # ========================================================================== auth-svc (PEP)
+  # Dòng "authz_decision" đã dùng sẵn tên trường của schema → chỉ chọn trường.
+  norm_auth_svc:
+    type: remap
+    inputs: [src_auth_svc]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      if r.msg != "authz_decision" { abort }   # "listening", "shutting down"… là log vận hành
+
+      keep = ["event_time", "request_id", "profile", "method", "route_group", "route_template",
+              "decision", "decision_reason", "principal", "client_id", "token_type", "alg", "kid",
+              "iss", "aud", "scope_set", "proof_status", "cnf_jkt", "proof_jkt", "policy_id",
+              "policy_version", "policy_route", "opa_decision_id", "policy_eval_us", "duration_ms"]
+      ev = filter(r) -> |k, _v| { includes(keep, k) }
+      ev.source = "auth-svc"
+      ev.event_type = "authz_decision"
+      ev.received = .timestamp
+      . = ev
+
+  # ========================================================================== OPA (PDP)
+  # Decision log: JSON lồng nhau do OPA định dạng. input.path đã bị policy/log_mask.rego xoá
+  # trước khi OPA ghi, nên đường dẫn thật không tới được đây. Bảng ánh xạ: policy/README.md.
+  norm_opa:
+    type: remap
+    inputs: [src_opa]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      if !exists(r.decision_id) || !is_object(r.result) { abort }   # "Received request", "Sent response"…
+
+      res = object!(r.result)
+      inp = object(r.input) ?? {}
+      sub = object(inp.subject) ?? {}
+
+      decision = null
+      if res.allow == true { decision = "allow" } else if res.allow == false { decision = "deny" }
+
+      # auth-svc gửi roles đã sắp xếp nên chuỗi này có thứ tự cố định (VRL không có hàm sort).
+      roles = filter(array(sub.roles) ?? []) -> |_i, v| { is_string(v) }
+      subject_roles = join(roles, ",") ?? null
+
+      eval_us = null
+      if is_integer(r.metrics.timer_rego_query_eval_ns) {
+        eval_us = to_int(floor(to_int!(r.metrics.timer_rego_query_eval_ns) / 1000))
+      }
+
+      . = {
+        "source": "opa",
+        "event_type": "policy_decision",
+        "received": .timestamp,
+        "event_time": r.timestamp,
+        "opa_decision_id": r.decision_id,
+        "decision": decision,
+        "decision_reason": res.reason,
+        "policy_id": res.policy_id,
+        "policy_version": res.policy_version,
+        "policy_route": res.route,
+        "route_template": res.route_template,
+        "method": inp.method,
+        "principal": sub.sub,
+        "client_id": sub.client_id,
+        "subject_roles": subject_roles,
+        "subject_dept": sub.dept,
+        "subject_tier": sub.tier,
+        "policy_eval_us": eval_us
+      }
+
+  # ========================================================================== Backend
+  # orders-api và profile-api: dòng "request". Bỏ /healthz (Docker gọi 10 s một lần, không
+  # phải request của người dùng). Nguồn = tên service do Docker gắn cho container.
+  norm_backend:
+    type: remap
+    inputs: [src_backend]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      if r.msg != "request" || r.route_template == "/healthz" { abort }
+
+      svc = to_string(.label."com.docker.compose.service") ?? ""
+      if svc != "orders-api" && svc != "profile-api" { abort }
+
+      keep = ["event_time", "request_id", "method", "route_template", "status_code",
+              "backend_object_authz", "backend_authz_reason", "backend_redacted_fields", "duration_ms"]
+      ev = filter(r) -> |k, _v| { includes(keep, k) }
+      ev.source = svc
+      ev.event_type = "backend_request"
+      ev.received = .timestamp
+      . = ev
+
+  # ========================================================================== Keycloak (IdP)
+  # Keycloak ghi log JSON (KC_LOG_CONSOLE_OUTPUT=json). Chỉ lấy logger org.keycloak.events:
+  #   type="LOGIN", realmName="topic09", clientId="web-app", userId="…", …
+  # Chỉ chọn vài khoá cần cho hunt. KHÔNG lấy username, ipAddress, redirect_uri, code_id,
+  # token_id, sessionId (định danh và mã phiên không vào SIEM).
+  norm_keycloak:
+    type: remap
+    inputs: [src_keycloak]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      if r.loggerName != "org.keycloak.events" { abort }
+
+      kv = parse_key_value(to_string(r.message) ?? "", key_value_delimiter: "=", field_delimiter: ",") ?? {}
+      typ = to_string(kv.type) ?? ""
+      if typ == "" { abort }   # sự kiện quản trị (operationType=…) chưa đưa vào SIEM ở tuần 8
+
+      uid = to_string(kv.userId) ?? ""
+      if uid == "null" { uid = "" }
+
+      decision = "allow"
+      reason = "ok"
+      if ends_with(typ, "_ERROR") {
+        decision = "deny"
+        reason = to_string(kv.error) ?? "error"
+      }
+
+      . = {
+        "source": "keycloak",
+        "event_type": "idp_event",
+        "received": .timestamp,
+        "event_time": r.timestamp,
+        "idp_event": typ,
+        "idp_realm": kv.realmName,
+        "decision": decision,
+        "decision_reason": reason,
+        "principal": uid,
+        "client_id": kv.clientId,
+        "grant_type": kv.grant_type
+      }
+
+  # ========================================================================== seal — bước chung
+  seal:
+    type: remap
+    inputs: [norm_envoy, norm_auth_svc, norm_opa, norm_backend, norm_keycloak]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      # Khoá HMAC (tài sản #14) lấy từ môi trường lúc chạy. Thiếu khoá → lỗi → sự kiện bị bỏ:
+      # thà mất sự kiện còn hơn đưa định danh thật vào SIEM.
+      key = get_env_var!("SIEM_HMAC_KEY")
+      if strlen(key) < 32 { abort }
+      flagged = false
+
+      # --- 0. Nguồn ghi "" hoặc "-" cho giá trị không có → null.
+      . = map_values(.) -> |v| { if v == "" || v == "-" { null } else { v } }
+
+      # --- 1. Thời điểm: giữ nguyên nếu đúng RFC 3339 UTC; khác dạng thì đổi; hỏng thì dùng
+      #        thời điểm Docker nhận dòng log (.received).
+      et = to_string(.event_time) ?? ""
+      if !match(et, r'^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$') {
+        t = parse_timestamp(et, "%+") ?? .received
+        .event_time = format_timestamp(t, "%Y-%m-%dT%H:%M:%S%.6fZ") ?? null
+      }
+
+      # --- 2. Giả danh (SR-10). HMAC có khoá, không phải hash trần: sub là UUID, hash trần đoán
+      #        ngược được bằng cách băm thử. Tiền tố "principal:" / "aud:" tách miền — cùng một
+      #        chuỗi ở hai trường không cho ra cùng một hash.
+      p = to_string(.principal) ?? ""
+      if p != "" { .principal_hash = encode_base16(hmac("principal:" + p, key)) }
+      a = to_string(.aud) ?? ""
+      if a != "" { .aud_hash = encode_base16(hmac("aud:" + a, key)) }
+
+      # --- 3. authn_method: suy từ client_id theo cấu hình realm (idp/realm-topic09.json) —
+      #        mỗi client chỉ bật một luồng. Đổi client trong realm thì sửa bảng này.
+      methods = {"web-app": "pkce", "web-app-dpop": "pkce", "batch-worker": "private_key_jwt"}
+      .authn_method = get(methods, [to_string(.client_id) ?? ""]) ?? null
+
+      # --- 4. Allow-list: chỉ giữ trường có trong telemetry/schema.json. principal, aud,
+      #        received và mọi trường lạ rơi ở đây. (Danh sách này được make vector-validate
+      #        so với schema.)
+      allowed = ["event_time", "request_id", "principal_hash", "client_id", "workload_id",
+                 "authn_method", "token_type", "alg", "kid", "iss", "aud_hash", "scope_set",
+                 "proof_status", "policy_id", "policy_version", "decision", "decision_reason",
+                 "route_template", "backend_object_authz", "status_code", "gateway_cycles",
+                 "crypto_verify_cycles", "policy_eval_us", "kms_calls", "tls_peer_fingerprint",
+                 "attack_label", "attack_id",
+                 "source", "event_type", "profile", "method", "route_group", "policy_route",
+                 "opa_decision_id", "cnf_jkt", "proof_jkt", "duration_ms", "backend_authz_reason",
+                 "backend_redacted_fields", "idp_event", "idp_realm", "grant_type",
+                 "pipeline_redacted", "subject_roles", "subject_dept", "subject_tier",
+                 "listener_port", "upstream_cluster", "response_flags", "response_code_details",
+                 "tls_version", "tls_cipher"]
+      . = filter(.) -> |k, _v| { includes(allowed, k) }
+
+      # --- 5. Kiểm dạng hai trường mà phía gọi điều khiển được.
+      #   request_id: UUID do Envoy sinh. Request gọi thẳng backend (vòng qua gateway, S8) tự
+      #   đặt X-Request-Id tuỳ ý — kể cả một token. Sai dạng → bỏ giá trị, gắn cờ.
+      rid = to_string(.request_id) ?? ""
+      if rid != "" && !match(rid, r'^[0-9a-fA-F-]{1,64}$') {
+        .request_id = null
+        flagged = true
+      }
+      m = to_string(.method) ?? ""
+      if m != "" && !match(m, r'^[A-Za-z]{1,16}$') {
+        .method = "OTHER"
+        flagged = true
+      }
+
+      # --- 6. Chuỗi quá dài bị cắt (không trường nào của schema cần hơn 256 ký tự).
+      . = map_values(.) -> |v| {
+        if is_string(v) && strlen(string!(v)) > 256 { truncate(string!(v), 256) } else { v }
+      }
+
+      # --- 7. Lưới cuối: che mọi giá trị có dạng JWT, khoá PEM hoặc mã uỷ quyền, ở bất kỳ
+      #        trường nào. Sự kiện được giữ lại (đã che) và gắn cờ pipeline_redacted.
+      before = encode_json(.)
+      . = redact(., filters: [
+        r'eyJ[A-Za-z0-9_-]{8,}(\.[A-Za-z0-9_-]+)*',
+        r'-----BEGIN[A-Z0-9 ]*-----',
+        r'\bcode=[A-Za-z0-9._~-]{6,}'
+      ])
+      if encode_json(.) != before { flagged = true }
+      if flagged { .pipeline_redacted = true }
+
+      # --- 8. Bỏ trường null: thiếu trường = null (schema cho phép), tài liệu gọn hơn.
+      . = compact(., null: true, string: false, object: false, array: false)
+
+# ============================================================================ SIEM
+sinks:
+  siem:
+    type: elasticsearch          # OpenSearch dùng chung giao thức bulk
+    inputs: [seal]
+    endpoints: ["http://opensearch:9200"]   # mạng topic09-telemetry (internal), không TLS — quyết định 2026-11-13
+    api_version: v8              # không gửi _type (OpenSearch 2+ đã bỏ mapping type)
+    mode: bulk
+    bulk:
+      index: topic09-events
+      action: create             # chỉ THÊM tài liệu mới, không ghi đè tài liệu có sẵn
+    compression: none
+    batch:
+      max_events: 500
+      timeout_secs: 2            # sự kiện tới SIEM trong vài giây
+    healthcheck:
+      enabled: true

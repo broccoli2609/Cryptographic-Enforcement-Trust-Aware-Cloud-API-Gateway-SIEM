@@ -1,8 +1,12 @@
 COMPOSE ?= docker compose
 
-.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence policy-test authz-test dpop-client dpop-login dpop-test object-authz-test
+.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence policy-test authz-test dpop-client dpop-login dpop-test object-authz-test schema-test vector-validate siem-mapping siem-test siem-scan siem-search
 
 OPA_IMAGE ?= openpolicyagent/opa:1.21.4-static
+VECTOR_IMAGE ?= timberio/vector:0.60.0-alpine
+# Khoá GIẢ, chỉ dùng cho unit test của đường ống Vector (telemetry/vector/tests.yaml có một
+# known-answer test tính sẵn theo khoá này). Khoá thật là SIEM_HMAC_KEY trong .env.
+VECTOR_TEST_KEY ?= unit-test-key-not-a-secret-0123456789abcdef
 
 up:            ## Build và chạy lab nền (cần đã chạy `make certs` một lần)
 	$(COMPOSE) up -d --build
@@ -16,7 +20,7 @@ ps:            ## Trạng thái các container
 logs:          ## Xem log liên tục
 	$(COMPOSE) logs -f --tail=50
 
-smoke:         ## Kiểm nhanh lab sau khi up (20 PASS là đạt — tuần 6)
+smoke:         ## Kiểm nhanh lab sau khi up (26 PASS là đạt — tuần 8)
 	./scripts/smoke-test.sh
 
 test:          ## Unit test của backend và auth-svc
@@ -86,7 +90,31 @@ dpop-test:     ## P2 đầu-cuối: replay, token bị trộm, 14 ca proof sai, 
 object-authz-test: ## BOLA/BFLA/property-level đầu-cuối (P1 + P0), log 2 tầng gateway ↔ backend
 	./scripts/object-authz-test.sh
 
-evidence:      ## Chạy lại mọi kiểm tra tuần 3–7 và lưu vào docs/evidence, docs/traces
+# --- Tuần 8: telemetry → SIEM (Vector → OpenSearch) ---
+
+schema-test:   ## Log THÔ của 5 nguồn ↔ telemetry/schema.json (27 trường mục 13.1 đề bài)
+	./scripts/telemetry-schema-test.sh
+
+vector-validate: ## Kiểm vector.yaml + unit test đường ống + schema/allow-list/mapping khớp nhau (không cần lab chạy)
+	docker run --rm --network none -e SIEM_HMAC_KEY=$(VECTOR_TEST_KEY) -v $(CURDIR)/telemetry/vector:/etc/vector:ro $(VECTOR_IMAGE) validate --no-environment /etc/vector/vector.yaml
+	docker run --rm --network none -e SIEM_HMAC_KEY=$(VECTOR_TEST_KEY) -v $(CURDIR)/telemetry/vector:/etc/vector:ro $(VECTOR_IMAGE) test /etc/vector/vector.yaml /etc/vector/tests.yaml
+	python3 telemetry/schema_check.py self
+	python3 telemetry/schema_check.py sync
+
+siem-mapping:  ## Sinh lại mapping OpenSearch từ telemetry/schema.json (chạy sau khi sửa schema, rồi `make up`)
+	python3 telemetry/schema_check.py mapping --write
+
+siem-test:     ## Đường ống đầu-cuối: 5 nguồn → Vector → OpenSearch, HMAC, chèn token, scanner, mapping strict
+	./scripts/siem-test.sh
+
+siem-scan:     ## Scanner SR-10: tìm token/khoá/mã uỷ quyền/bí mật/định danh thô trong SIEM và dataset/
+	./scripts/siem-scan.sh
+
+siem-search:   ## In 20 sự kiện mới nhất trong SIEM (OpenSearch không có port → gọi từ trong container)
+	@$(COMPOSE) exec -T opensearch curl -s -H 'Content-Type: application/json' 'http://127.0.0.1:9200/topic09-events/_search?size=20' \
+	  -d '{"sort":[{"event_time":"desc"}]}' | python3 -c 'import json,sys; [print(json.dumps(h["_source"], ensure_ascii=False, sort_keys=True)) for h in json.load(sys.stdin)["hits"]["hits"]]'
+
+evidence:      ## Chạy lại mọi kiểm tra tuần 3–8 và lưu vào docs/evidence, docs/traces
 	./scripts/check-realm.sh > docs/evidence/realm-topic09-$$(date +%F).txt
 	./scripts/token-claims.sh > docs/evidence/token-claims-$$(date +%F).txt
 	./scripts/pkce-login.sh alice > docs/traces/pkce-auth-code-$$(date +%F).txt
@@ -101,4 +129,6 @@ evidence:      ## Chạy lại mọi kiểm tra tuần 3–7 và lưu vào docs/
 	./scripts/dpop-login.sh alice secrets/dpop/alice.pem > docs/traces/dpop-token-$$(date +%F).txt
 	./scripts/dpop-test.sh > docs/evidence/dpop-p2-$$(date +%F).txt
 	./scripts/object-authz-test.sh > docs/evidence/object-authz-$$(date +%F).txt
+	./scripts/telemetry-schema-test.sh > docs/evidence/telemetry-schema-$$(date +%F).txt
+	./scripts/siem-test.sh > docs/evidence/siem-pipeline-$$(date +%F).txt
 	./scripts/smoke-test.sh > docs/evidence/smoke-test-$$(date +%F).txt

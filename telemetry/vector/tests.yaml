@@ -1,0 +1,464 @@
+# Unit test cho đường ống Vector — chạy:  make vector-validate   (không cần lab đang chạy)
+#
+# Mỗi test đưa một dòng log giả vào một bước norm_* và khẳng định sự kiện đi ra khỏi "seal"
+# (thứ sẽ vào SIEM). Khoá HMAC khi test là giá trị giả đặt trong Makefile.
+# Mọi "token" trong file này là chuỗi GIẢ và được dựng lúc chạy test (encode_base64 của một JSON
+# nhỏ) — file không chứa chuỗi dạng JWT nào viết sẵn, để bộ quét bí mật trước commit không báo nhầm.
+
+tests:
+  # ------------------------------------------------------------------ Envoy
+  - name: "envoy P0 cho qua: băm principal, suy profile + decision, bỏ client_ip"
+    inputs:
+      - insert_at: norm_envoy
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "service": "envoy", "event_time": "2026-11-13T06:23:55.672Z",
+            "request_id": "ff0c5f36-a84c-4cea-b886-1058095b5ee2", "listener_port": 8444,
+            "method": "GET", "route_group": "/orders", "status_code": 200, "response_flags": "-",
+            "response_code_details": "via_upstream", "upstream_cluster": "orders_api",
+            "duration_ms": 3, "tls_version": "TLSv1.3", "tls_cipher": "TLS_AES_256_GCM_SHA384",
+            "tls_peer_fingerprint": null, "principal": "a6dd1608-1da4-43c5-bdcb-e80f368478f6",
+            "client_id": "web-app", "client_ip": "172.21.0.1"
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "envoy")
+              assert_eq!(.event_type, "gateway_access")
+              assert_eq!(.profile, "p0")
+              assert_eq!(.decision, "allow")
+              assert_eq!(.decision_reason, "via_upstream")
+              assert_eq!(.upstream_cluster, "orders_api")
+              assert_eq!(.authn_method, "pkce")
+              assert_eq!(.status_code, 200)
+              assert_eq!(.event_time, "2026-11-13T06:23:55.672Z")
+              assert!(match(string!(.principal_hash), r'^[0-9a-f]{64}$'))
+              assert!(!exists(.principal), "principal thô còn trong sự kiện")
+              assert!(!exists(.client_ip), "client_ip phải bị bỏ")
+              assert!(!exists(.response_flags), "\"-\" phải thành null rồi bị bỏ")
+              assert!(!exists(.tls_peer_fingerprint))
+              assert!(!exists(.pipeline_redacted))
+              assert!(!contains(encode_json(.), "a6dd1608"), "sub thật lọt vào sự kiện")
+
+  - name: "envoy chặn (jwt_authn): decision = deny, không ghi upstream_cluster"
+    inputs:
+      - insert_at: norm_envoy
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "service": "envoy", "event_time": "2026-11-13T06:24:43.209Z",
+            "request_id": "93541cb5-85f5-49ab-bdac-df10881fa4d8", "listener_port": 8445,
+            "method": "GET", "route_group": "/orders", "status_code": 401, "response_flags": "-",
+            "response_code_details": "jwt_authn_access_denied{Jwt_is_missing}",
+            "upstream_cluster": "orders_api", "duration_ms": 0, "tls_version": "TLSv1.3",
+            "tls_cipher": "TLS_AES_256_GCM_SHA384", "principal": null, "client_id": null
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.profile, "p2")
+              assert_eq!(.decision, "deny")
+              assert_eq!(.decision_reason, "jwt_authn_access_denied{Jwt_is_missing}")
+              assert!(!exists(.upstream_cluster), "request bị chặn không tới backend")
+              assert!(!exists(.principal_hash), "không token thì không có danh tính")
+              assert!(!exists(.authn_method))
+
+  - name: "envoy không có route: route_group = other, decision null"
+    inputs:
+      - insert_at: norm_envoy
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "service": "envoy", "event_time": "2026-11-13T06:23:17.861Z",
+            "request_id": "9c5aa7a9-0187-4e09-a28b-42b6f0bd6fdd", "listener_port": 8443,
+            "method": "GET", "route_group": null, "status_code": 404, "response_flags": "NR",
+            "response_code_details": "route_not_found", "upstream_cluster": null, "duration_ms": 0
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.route_group, "other")
+              assert_eq!(.profile, "p1")
+              assert_eq!(.response_flags, "NR")
+              assert!(!exists(.decision))
+              assert!(!exists(.decision_reason))
+
+  - name: "envoy: dòng log khởi động (không phải JSON) bị bỏ"
+    inputs:
+      - insert_at: norm_envoy
+        type: raw
+        value: "[2026-11-13 06:22:45.123][1][info][main] [source/server/server.cc:426] initializing epoch 0"
+    no_outputs_from: [norm_envoy]
+
+  # ------------------------------------------------------------------ auth-svc
+  - name: "auth-svc P2 cho qua: băm principal và aud, giữ jkt (khoá công khai), bỏ khoá thô"
+    inputs:
+      - insert_at: norm_auth_svc
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "time": "2026-11-13T06:23:54.956840115Z", "level": "INFO", "msg": "authz_decision",
+            "service": "auth-svc", "event_time": "2026-11-13T06:23:54.954928508Z",
+            "request_id": "bfe1efc5-dd48-4ef7-9dd1-8e63ac50d007", "profile": "p2", "method": "GET",
+            "route_group": "/orders", "route_template": "/orders/{id}", "decision": "allow",
+            "decision_reason": "ok", "principal": "a6dd1608-1da4-43c5-bdcb-e80f368478f6",
+            "client_id": "web-app-dpop", "token_type": "DPoP", "alg": "RS256", "kid": "kid-1",
+            "iss": "http://localhost:8080/realms/topic09", "aud": "topic09-api",
+            "scope_set": "email openid profile", "proof_status": "valid",
+            "cnf_jkt": "HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM",
+            "proof_jkt": "HqrvtgmxPP60WHHV98ypg5V2l8rNrDMol6TW80JDLXM",
+            "policy_id": "topic09.authz", "policy_version": "1.1.0", "policy_route": "orders.read",
+            "opa_decision_id": "342ced3d-e477-4104-8438-a91b6191d088", "policy_eval_us": 1453,
+            "duration_ms": 1.903
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "auth-svc")
+              assert_eq!(.event_type, "authz_decision")
+              assert_eq!(.token_type, "DPoP")
+              assert_eq!(.proof_status, "valid")
+              assert_eq!(.route_template, "/orders/{id}")
+              assert_eq!(.policy_eval_us, 1453)
+              assert_eq!(.authn_method, "pkce")
+              assert_eq!(.event_time, "2026-11-13T06:23:54.954928508Z")
+              assert!(match(string!(.principal_hash), r'^[0-9a-f]{64}$'))
+              assert!(match(string!(.aud_hash), r'^[0-9a-f]{64}$'))
+              assert!(.principal_hash != .aud_hash)
+              assert!(!exists(.principal) && !exists(.aud) && !exists(.msg) && !exists(.time) && !exists(.level) && !exists(.service))
+              assert!(!exists(.pipeline_redacted))
+
+  - name: "auth-svc từ chối: trường rỗng biến mất, batch-worker → private_key_jwt"
+    inputs:
+      - insert_at: norm_auth_svc
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "msg": "authz_decision", "service": "auth-svc",
+            "event_time": "2026-11-13T06:24:02.364403765Z",
+            "request_id": "91953687-1075-405a-8543-f71334f47206", "profile": "p1", "method": "POST",
+            "route_group": "/orders", "route_template": "", "decision": "deny",
+            "decision_reason": "policy_unavailable", "principal": "b1b1b1b1-0000-4000-8000-000000000001",
+            "client_id": "batch-worker", "token_type": "bearer", "alg": "RS256", "kid": "kid-1",
+            "iss": "http://localhost:8080/realms/topic09", "aud": "topic09-api", "scope_set": "",
+            "proof_status": "not_applicable", "cnf_jkt": "", "proof_jkt": "", "policy_id": "",
+            "policy_version": "", "policy_route": "", "opa_decision_id": "",
+            "policy_eval_us": 251187, "duration_ms": 251.42
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.decision, "deny")
+              assert_eq!(.authn_method, "private_key_jwt")
+              assert_eq!(.policy_eval_us, 251187)
+              assert!(!exists(.route_template) && !exists(.policy_id) && !exists(.cnf_jkt) && !exists(.scope_set))
+
+  - name: "auth-svc: log vận hành (listening) không vào SIEM"
+    inputs:
+      - insert_at: norm_auth_svc
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"msg": "listening", "service": "auth-svc", "addr": ":9191", "opa_url": "http://opa:8181/v1/data/topic09/authz/decision"})
+    no_outputs_from: [norm_auth_svc]
+
+  # Hai sự kiện của cùng một người, từ hai nguồn khác nhau, phải cho CÙNG principal_hash —
+  # nếu không thì hunt theo người dùng không nối được Envoy với auth-svc.
+  # Đồng thời là known-answer test: giá trị mong đợi tính ĐỘC LẬP bằng openssl với khoá test
+  # trong Makefile (VECTOR_TEST_KEY):
+  #   printf 'principal:same-user-0001' | openssl dgst -sha256 -hmac "$VECTOR_TEST_KEY"
+  # → chứng minh Vector dùng đúng HMAC-SHA256 có khoá, với tiền tố tách miền "principal:".
+  - name: "cùng sub ở Envoy và auth-svc → cùng principal_hash = HMAC-SHA256 (đối chiếu openssl)"
+    inputs:
+      - insert_at: norm_envoy
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"service": "envoy", "event_time": "2026-11-13T06:00:00.000Z", "listener_port": 8443, "method": "GET", "status_code": 200, "response_code_details": "via_upstream", "principal": "same-user-0001", "client_id": "web-app"})
+      - insert_at: norm_auth_svc
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"msg": "authz_decision", "event_time": "2026-11-13T06:00:00.001Z", "decision": "allow", "decision_reason": "ok", "principal": "same-user-0001", "client_id": "web-app"})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.principal_hash, "83bf137d7dc6a191c258f6b4a1f55277643c8b9774b8e21dd0b6abdeb2f79de3")
+
+  # ------------------------------------------------------------------ OPA
+  - name: "OPA decision log: ánh xạ đủ trường, băm sub, không có input.path"
+    inputs:
+      - insert_at: norm_opa
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "decision_id": "5c2dce99-d0b8-4cec-b2e5-9fcf341a2e1c", "erased": ["/input/path"],
+            "input": {"method": "DELETE", "subject": {"client_id": "web-app", "dept": "sales", "roles": ["employee", "manager"], "sub": "a6dd1608-1da4-43c5-bdcb-e80f368478f6", "tier": "premium"}},
+            "labels": {"id": "728763e9", "version": "1.21.4"}, "level": "info",
+            "metrics": {"timer_rego_query_eval_ns": 1214666, "timer_server_handler_ns": 1333536},
+            "msg": "Decision Log", "path": "topic09/authz/decision", "req_id": 11,
+            "requested_by": "172.23.0.3:50742",
+            "result": {"allow": false, "policy_id": "topic09.authz", "policy_version": "1.1.0", "reason": "role_not_allowed", "route": "orders.delete", "route_template": "/orders/{id}"},
+            "time": "2026-11-13T06:24:05Z", "timestamp": "2026-11-13T06:24:05.216513054Z",
+            "type": "openpolicyagent.org/decision_logs"
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "opa")
+              assert_eq!(.event_type, "policy_decision")
+              assert_eq!(.event_time, "2026-11-13T06:24:05.216513054Z")
+              assert_eq!(.opa_decision_id, "5c2dce99-d0b8-4cec-b2e5-9fcf341a2e1c")
+              assert_eq!(.decision, "deny")
+              assert_eq!(.decision_reason, "role_not_allowed")
+              assert_eq!(.policy_version, "1.1.0")
+              assert_eq!(.policy_route, "orders.delete")
+              assert_eq!(.route_template, "/orders/{id}")
+              assert_eq!(.method, "DELETE")
+              assert_eq!(.subject_roles, "employee,manager")
+              assert_eq!(.subject_dept, "sales")
+              assert_eq!(.subject_tier, "premium")
+              assert_eq!(.policy_eval_us, 1214)
+              assert!(match(string!(.principal_hash), r'^[0-9a-f]{64}$'))
+              assert!(!exists(.principal) && !exists(.input) && !exists(.result) && !exists(.requested_by) && !exists(.labels))
+              assert!(!exists(.request_id), "OPA không biết request_id; nối bằng opa_decision_id")
+
+  - name: "OPA: dòng 'Received request' của health check không vào SIEM"
+    inputs:
+      - insert_at: norm_opa
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"client_addr": "127.0.0.1:43600", "level": "info", "msg": "Received request.", "req_id": 1602, "req_method": "GET", "req_path": "/health", "time": "2026-11-13T06:25:57Z"})
+    no_outputs_from: [norm_opa]
+
+  # ------------------------------------------------------------------ Backend
+  - name: "backend: BOLA bị chặn — nguồn lấy từ nhãn compose của container"
+    inputs:
+      - insert_at: norm_backend
+        type: vrl
+        source: |
+          .timestamp = now()
+          .label."com.docker.compose.service" = "orders-api"
+          .message = encode_json({
+            "time": "2026-11-13T06:24:05.142196797Z", "level": "INFO", "msg": "request",
+            "service": "auth-svc",
+            "event_time": "2026-11-13T06:24:05.142159077Z",
+            "request_id": "7ee52edc-3f86-4bce-86c0-017482daebff", "method": "GET",
+            "route_template": "/orders/{id}", "status_code": 404, "backend_object_authz": "deny",
+            "backend_authz_reason": "not_owner", "backend_redacted_fields": "", "duration_ms": 0.031
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              # Dòng log tự xưng "service": "auth-svc" — SIEM vẫn ghi đúng container đã sinh ra nó.
+              assert_eq!(.source, "orders-api")
+              assert_eq!(.event_type, "backend_request")
+              assert_eq!(.backend_object_authz, "deny")
+              assert_eq!(.backend_authz_reason, "not_owner")
+              assert_eq!(.status_code, 404)
+              assert_eq!(.request_id, "7ee52edc-3f86-4bce-86c0-017482daebff")
+              assert!(!exists(.backend_redacted_fields))
+              assert!(!exists(.principal_hash), "backend không ghi danh tính")
+
+  - name: "backend: /healthz của Docker không vào SIEM"
+    inputs:
+      - insert_at: norm_backend
+        type: vrl
+        source: |
+          .timestamp = now()
+          .label."com.docker.compose.service" = "orders-api"
+          .message = encode_json({"msg": "request", "service": "orders-api", "event_time": "2026-11-13T06:25:28.21824191Z", "request_id": "", "method": "GET", "route_template": "/healthz", "status_code": 200, "backend_object_authz": "not_applicable"})
+    no_outputs_from: [norm_backend]
+
+  # Kịch bản S8 (vòng qua gateway): kẻ ở trong mạng backend gọi thẳng orders-api và tự đặt
+  # X-Request-Id là một token. Backend ghi nguyên vào log thô — Vector không được để nó vào SIEM.
+  - name: "S8: token nằm trong X-Request-Id → request_id bị bỏ, gắn cờ, không còn 'eyJ'"
+    inputs:
+      - insert_at: norm_backend
+        type: vrl
+        source: |
+          .timestamp = now()
+          .label."com.docker.compose.service" = "orders-api"
+          fake = encode_base64("{\"alg\":\"RS256\"}", padding: false, charset: "url_safe") + "." + encode_base64("{\"sub\":\"fake\"}", padding: false, charset: "url_safe") + "." + encode_base64("fakesig", padding: false, charset: "url_safe")
+          .message = encode_json({"msg": "request", "service": "orders-api", "event_time": "2026-11-13T06:30:00.000000001Z", "request_id": fake, "method": "GET", "route_template": "/orders/whoami", "status_code": 200, "backend_object_authz": "not_applicable", "backend_authz_reason": "", "duration_ms": 0.02})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert!(!exists(.request_id), "request_id sai dạng phải bị bỏ")
+              assert_eq!(.pipeline_redacted, true)
+              assert_eq!(.source, "orders-api")
+              assert!(!contains(encode_json(.), "eyJ"), "còn mảnh token trong sự kiện")
+
+  - name: "method lạ (không phải chữ cái) → OTHER + cờ"
+    inputs:
+      - insert_at: norm_backend
+        type: vrl
+        source: |
+          .timestamp = now()
+          .label."com.docker.compose.service" = "profile-api"
+          fake = encode_base64("{\"alg\":\"none\"}", padding: false, charset: "url_safe") + "." + encode_base64("{}", padding: false, charset: "url_safe") + "."
+          .message = encode_json({"msg": "request", "event_time": "2026-11-13T06:30:00Z", "request_id": "7ee52edc-3f86-4bce-86c0-017482daebff", "method": fake, "route_template": "/", "status_code": 404, "backend_object_authz": "not_applicable"})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.method, "OTHER")
+              assert_eq!(.pipeline_redacted, true)
+              assert_eq!(.source, "profile-api")
+
+  # ------------------------------------------------------------------ lưới cuối (bước 7 của seal)
+  # kid và alg đọc từ header của token CHƯA kiểm chữ ký → kẻ tấn công đặt được. Nếu chúng mang
+  # dạng token hay khoá, giá trị bị che nhưng sự kiện vẫn được giữ.
+  - name: "giá trị dạng JWT / PEM / code= trong trường hợp lệ bị che"
+    inputs:
+      - insert_at: norm_auth_svc
+        type: vrl
+        source: |
+          .timestamp = now()
+          fake = encode_base64("{\"alg\":\"RS256\"}", padding: false, charset: "url_safe") + "." + encode_base64("{\"sub\":\"x\"}", padding: false, charset: "url_safe") + "." + encode_base64("signature", padding: false, charset: "url_safe")
+          pem = "-----" + "BEGIN PRIVATE KEY" + "-----"
+          .message = encode_json({"msg": "authz_decision", "event_time": "2026-11-13T06:31:00Z", "request_id": "7ee52edc-3f86-4bce-86c0-017482daebff", "decision": "deny", "decision_reason": "unknown_kid", "alg": "RS256", "kid": fake, "iss": pem, "scope_set": "openid code=SplxlOBeZQQYbYS6WxSbIA"})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              j = encode_json(.)
+              assert!(!contains(j, "eyJ"), "còn JWT")
+              assert!(!contains(j, "BEGIN PRIVATE KEY"), "còn khoá PEM")
+              assert!(!contains(j, "SplxlOBeZQQYbYS6WxSbIA"), "còn mã uỷ quyền")
+              assert_eq!(.kid, "[REDACTED]")
+              assert_eq!(.pipeline_redacted, true)
+              assert_eq!(.decision_reason, "unknown_kid")
+
+  - name: "trường lạ (authorization, cookie, body) không qua được allow-list"
+    inputs:
+      - insert_at: norm_auth_svc
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"msg": "authz_decision", "event_time": "2026-11-13T06:32:00Z", "decision": "allow", "decision_reason": "ok", "authorization": "Bearer abc", "cookie": "KEYCLOAK_SESSION=x", "body": {"password": "p"}, "x_user": "admin"})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert!(!exists(.authorization) && !exists(.cookie) && !exists(.body) && !exists(.x_user))
+              assert_eq!(.decision, "allow")
+
+  - name: "event_time sai dạng → dùng thời điểm Docker nhận, vẫn đúng RFC 3339 UTC"
+    inputs:
+      - insert_at: norm_backend
+        type: vrl
+        source: |
+          .timestamp = t'2026-11-13T07:00:00.123456Z'
+          .label."com.docker.compose.service" = "orders-api"
+          .message = encode_json({"msg": "request", "event_time": "hôm qua", "method": "GET", "route_template": "/orders", "status_code": 200})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.event_time, "2026-11-13T07:00:00.123456Z")
+
+  # ------------------------------------------------------------------ Keycloak
+  - name: "Keycloak LOGIN: giữ loại sự kiện + realm + client, băm userId, bỏ username/IP/redirect_uri"
+    inputs:
+      - insert_at: norm_keycloak
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "timestamp": "2026-11-13T06:40:01.123456Z", "sequence": 9001, "level": "INFO",
+            "loggerClassName": "org.jboss.logging.Logger", "loggerName": "org.keycloak.events",
+            "message": "type=\"LOGIN\", realmId=\"7d2f\", realmName=\"topic09\", clientId=\"web-app\", userId=\"a6dd1608-1da4-43c5-bdcb-e80f368478f6\", sessionId=\"0c1d\", ipAddress=\"172.21.0.1\", auth_method=\"openid-connect\", auth_type=\"code\", redirect_uri=\"http://localhost:3000/callback\", consent=\"no_consent_required\", code_id=\"0c1d\", username=\"alice\"",
+            "threadName": "executor-thread-1", "hostName": "keycloak", "processName": "/usr/lib/jvm/jre/bin/java"
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "keycloak")
+              assert_eq!(.event_type, "idp_event")
+              assert_eq!(.idp_event, "LOGIN")
+              assert_eq!(.idp_realm, "topic09")
+              assert_eq!(.client_id, "web-app")
+              assert_eq!(.decision, "allow")
+              assert_eq!(.authn_method, "pkce")
+              assert_eq!(.event_time, "2026-11-13T06:40:01.123456Z")
+              assert!(match(string!(.principal_hash), r'^[0-9a-f]{64}$'))
+              j = encode_json(.)
+              assert!(!contains(j, "alice"), "username lọt vào SIEM")
+              assert!(!contains(j, "172.21.0.1") && !contains(j, "callback") && !contains(j, "a6dd1608"))
+
+  - name: "Keycloak LOGIN_ERROR: decision = deny, lý do là mã lỗi; userId null → không có hash"
+    inputs:
+      - insert_at: norm_keycloak
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"timestamp": "2026-11-13T06:41:00.5Z", "level": "WARN", "loggerName": "org.keycloak.events", "message": "type=\"LOGIN_ERROR\", realmId=\"7d2f\", realmName=\"topic09\", clientId=\"web-app\", userId=\"null\", ipAddress=\"172.21.0.1\", error=\"user_not_found\", auth_method=\"openid-connect\", username=\"mallory\""})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.idp_event, "LOGIN_ERROR")
+              assert_eq!(.decision, "deny")
+              assert_eq!(.decision_reason, "user_not_found")
+              assert!(!exists(.principal_hash))
+              assert!(!contains(encode_json(.), "mallory"))
+
+  - name: "Keycloak CLIENT_LOGIN của batch-worker: grant client_credentials → private_key_jwt"
+    inputs:
+      - insert_at: norm_keycloak
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"timestamp": "2026-11-13T06:42:00Z", "level": "INFO", "loggerName": "org.keycloak.events", "message": "type=\"CLIENT_LOGIN\", realmId=\"7d2f\", realmName=\"topic09\", clientId=\"batch-worker\", userId=\"c0ffee00-0000-4000-8000-00000000beef\", ipAddress=\"172.21.0.1\", token_id=\"trrtcc:1\", grant_type=\"client_credentials\", scope=\"profile email\", client_auth_method=\"client-jwt\", username=\"service-account-batch-worker\""})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.idp_event, "CLIENT_LOGIN")
+              assert_eq!(.grant_type, "client_credentials")
+              assert_eq!(.authn_method, "private_key_jwt")
+              assert!(!contains(encode_json(.), "trrtcc"), "token_id không vào SIEM")
+
+  - name: "Keycloak: log thường (không phải org.keycloak.events) không vào SIEM"
+    inputs:
+      - insert_at: norm_keycloak
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"timestamp": "2026-11-13T06:22:35.008Z", "level": "INFO", "loggerName": "io.quarkus", "message": "Keycloak 26.8.0 on JVM started in 14.949s. Listening on: http://0.0.0.0:8080"})
+    no_outputs_from: [norm_keycloak]
