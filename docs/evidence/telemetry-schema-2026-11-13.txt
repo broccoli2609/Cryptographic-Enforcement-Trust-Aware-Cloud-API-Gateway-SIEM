@@ -1,0 +1,105 @@
+# Telemetry: log thô ↔ telemetry/schema.json — 2026-11-13T07:22:49+00:00
+
+## 1. Schema
+  Schema urn:topic09:telemetry:event, phiên bản 1.0.0
+    52 trường: 27 core (mục 13.1 đề bài) + 25 mở rộng
+    core / out_of_scope  2: workload_id, tls_peer_fingerprint
+    core / week10        2: attack_label, attack_id
+    core / week11        2: gateway_cycles, crypto_verify_cycles
+    core / week8        20: event_time, request_id, principal_hash, client_id, authn_method, token_type, alg, kid, iss, aud_hash, scope_set, proof_status, policy_id, policy_version, decision, decision_reason, route_template, backend_object_authz, status_code, policy_eval_us
+    core / week9         1: kms_calls
+  Kết quả self: ĐẠT
+  [PASS] schema hợp lệ, đủ 27 trường mục 13.1
+
+## 2. Request mẫu
+  # Lượt request mẫu cho telemetry — 2026-11-13T07:22:53+00:00
+  ## P0 :8444 — chỉ Envoy jwt_authn
+    :8444  200  alice GET /orders/whoami                                           a916ee7f-b10a-4ccf-b7eb-bf7f65f468e9
+    :8444  401  không token                                                       76e2e5bb-7631-4c5b-8f71-7e8ba4bd5b04
+    :8444  404  alice GET đơn của bob (BOLA — P0 không có OPA, backend chặn) 0da5c24d-6b2f-417d-b208-9406fa7c389c
+  ## P1 :8443 — JWT chặt + OPA
+    :8443  200  alice GET /orders/whoami                                           b43d74e9-20ab-4c56-9e12-5bc0b8898457
+    :8443  200  alice GET /orders (danh sách, server lọc)                       217eb0ce-6680-4c08-90d5-39e41b83be9e
+    :8443  200  alice GET đơn của mình                                        01412894-327f-4903-b0ec-bc84e2f03834
+    :8443  404  alice GET đơn của bob (BOLA: gateway cho qua, backend chặn)  88e768db-76da-46a8-969f-a2f56b343500
+    :8443  403  alice DELETE đơn (BFLA: OPA chặn, role_not_allowed)            88a090e4-e5bb-4d56-b0ce-064fa5462ac9
+    :8443  403  bob POST /orders (ABAC dept)                                       77868d62-272a-49c2-b46b-e30047b5ab33
+    :8443  403  alice GET /orders/export (ABAC tier)                               99e1e1f2-0ceb-4d43-aafb-8cfc3577c3e1
+    :8443  200  dave (manager) GET hồ sơ alice — ẩn salary_band             5a8a9786-d88b-4485-9aa4-4d1e33c59a1f
+    :8443  200  carol (hr) GET hồ sơ alice                                      ba17e79a-f3cf-445a-80ed-2138a86c70c7
+    :8443  403  alice PATCH hồ sơ mình (chỉ hr được sửa)               b4885b27-4bb7-4972-891b-43f0e695d034
+    :8443  200  batch-worker GET /orders (client credentials)                      f32d4eff-6e38-4273-a2db-32101aee984f
+    :8443  401  không token                                                       5df362d3-a037-4deb-9ae4-0f4b73765da6
+    :8443  401  token rác                                                         5dbaf9d2-1ee1-4e44-99a0-c287446b526c
+    :8443  401  token gắn DPoP gửi như Bearer (hạ cấp)                    54dabc0f-e921-4c13-90b1-92f6cb41f059
+    :8443  404  alice GET /nope (không có route)                                 569b6a57-44c9-4dfa-bad7-190c9e0a21c0
+  ## P2 :8445 — P1 + DPoP
+    :8445  200  alice + proof mới                                                46ddaa3e-602b-4d9c-bcf9-5f570ff90386
+    :8445  401  phát lại NGUYÊN proof đó (replay)                            f0a4da19-def5-4ee7-aeb0-51e79a1b7be2
+    :8445  401  token trộm + proof ký bằng khoá khác                        608b7b64-e4c0-4386-b431-32df6779d89e
+    :8445  401  token trộm, không có proof                                     ef4894e6-5093-4c88-a074-4ce0bc26acbc
+    :8445  404  alice + proof mới, GET đơn của bob (BOLA ở P2)             e47f5973-8756-44a3-93c9-e60e1119b54f
+  [PASS] đã gửi 23 request
+
+## 3. Log thô của 5 nguồn ↔ schema
+  Đã đọc 100 dòng: 70 sự kiện bảo mật, 30 dòng khác (log vận hành, không vào SIEM)
+  Sự kiện theo nguồn: auth-svc=18, envoy=24, opa=14, orders-api=11, profile-api=3
+  
+  Trường core (mục 13.1 đề bài) — nguồn nào điền:
+     #  trường                 trạng thái    nguồn có giá trị
+     1  event_time             week8         auth-svc, envoy, opa, orders-api, profile-api
+     2  request_id             week8         auth-svc, envoy, orders-api, profile-api
+     3  principal_hash         week8         auth-svc, envoy, opa   (suy từ principal ở Vector)
+     4  client_id              week8         auth-svc, envoy, opa
+     5  workload_id            out_of_scope  —
+     6  authn_method           week8         auth-svc, envoy, opa   (suy từ client_id ở Vector)
+     7  token_type             week8         auth-svc
+     8  alg                    week8         auth-svc
+     9  kid                    week8         auth-svc
+    10  iss                    week8         auth-svc
+    11  aud_hash               week8         auth-svc   (suy từ aud ở Vector)
+    12  scope_set              week8         auth-svc
+    13  proof_status           week8         auth-svc
+    14  policy_id              week8         auth-svc, opa
+    15  policy_version         week8         auth-svc, opa
+    16  decision               week8         auth-svc, opa
+    17  decision_reason        week8         auth-svc, opa
+    18  route_template         week8         auth-svc, opa, orders-api, profile-api
+    19  backend_object_authz   week8         orders-api, profile-api
+    20  status_code            week8         envoy, orders-api, profile-api
+    21  gateway_cycles         week11        —
+    22  crypto_verify_cycles   week11        —
+    23  policy_eval_us         week8         auth-svc, opa
+    24  kms_calls              week9         —
+    25  tls_peer_fingerprint   out_of_scope  —
+    26  attack_label           week10        —
+    27  attack_id              week10        —
+  
+  Trường mở rộng đã thấy: backend_authz_reason[orders-api,profile-api], backend_redacted_fields[profile-api], cnf_jkt[auth-svc], duration_ms[auth-svc,envoy,orders-api,profile-api], listener_port[envoy], method[auth-svc,envoy,opa,orders-api,profile-api], opa_decision_id[auth-svc,opa], policy_route[auth-svc,opa], profile[auth-svc], proof_jkt[auth-svc], response_code_details[envoy], response_flags[envoy], route_group[auth-svc,envoy], subject_dept[opa], subject_roles[opa], subject_tier[opa], tls_cipher[envoy], tls_version[envoy], upstream_cluster[envoy]
+  
+  Quét bí mật trên 100 dòng thô: 0 dòng có dấu hiệu token/khoá/mã uỷ quyền; chuỗi 'eyJ' xuất hiện 0 lần
+  Kết quả source: ĐẠT
+  [PASS] mọi khoá và giá trị trong log thô khớp schema; không có token/khoá trong log
+
+## 4. Nối sự kiện giữa các nguồn (chỉ in request_id — UUID do Envoy sinh)
+  [PASS] mỗi request có đúng 1 dòng access log của Envoy (23/23)
+  [PASS] opa_decision_id của auth-svc khớp decision log của OPA (13/13)
+  [PASS] P0: không có sự kiện auth-svc, Envoy vẫn ghi principal của token đã kiểm
+  [PASS] không token: Envoy không ghi principal
+
+  Ba ca tiêu biểu (nguồn → trường chính):
+  • alice GET đơn của bob (BOLA: gateway cho qua, backend chặn)  [:8443 → 404]  request_id=88e768db-76da-46a8-969f-a2f56b343500
+      envoy     status_code=404 route_group=/orders details=via_upstream tls=TLSv1.3
+      auth-svc  decision=allow decision_reason=ok route_template=/orders/{id} token_type=bearer proof_status=not_applicable policy=topic09.authz@1.1.0 policy_eval_us=2395
+      orders-api status_code=404 route_template=/orders/{id} backend_object_authz=deny backend_authz_reason=not_owner redacted=-
+  • alice DELETE đơn (BFLA: OPA chặn, role_not_allowed)  [:8443 → 403]  request_id=88a090e4-e5bb-4d56-b0ce-064fa5462ac9
+      envoy     status_code=403 route_group=/orders details=ext_authz_denied tls=TLSv1.3
+      auth-svc  decision=deny decision_reason=role_not_allowed route_template=/orders/{id} token_type=bearer proof_status=not_applicable policy=topic09.authz@1.1.0 policy_eval_us=1696
+      backend   (không có dòng nào — request không tới backend)
+  • phát lại NGUYÊN proof đó (replay)  [:8445 → 401]  request_id=f0a4da19-def5-4ee7-aeb0-51e79a1b7be2
+      envoy     status_code=401 route_group=/orders details=ext_authz_denied tls=TLSv1.3
+      auth-svc  decision=deny decision_reason=dpop_replay route_template= token_type=DPoP proof_status=replay policy=@ policy_eval_us=None
+      backend   (không có dòng nào — request không tới backend)
+  [PASS] nối được sự kiện giữa các nguồn (4 phép kiểm, 0 lỗi)
+
+Kết quả: 4/4 PASS

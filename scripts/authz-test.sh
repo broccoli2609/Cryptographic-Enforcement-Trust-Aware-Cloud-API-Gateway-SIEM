@@ -111,7 +111,7 @@ for e in "${DENIED_IDS[@]}"; do
   line=$(grep -F "\"request_id\":\"$rid\"" "$TMP/log" | tail -1)
   printf '  %-58s %s\n' "${e#*|}" "$(printf %s "$line" | python3 -c 'import json,sys
 d = json.loads(sys.stdin.read() or "{}")
-print("reason=%s route=%s policy=%s@%s" % (d.get("reason"), d.get("policy_route"), d.get("policy_id"), d.get("policy_version")))')"
+print("reason=%s route=%s template=%s policy=%s@%s" % (d.get("decision_reason"), d.get("policy_route"), d.get("route_template"), d.get("policy_id"), d.get("policy_version")))')"
 done
 
 echo

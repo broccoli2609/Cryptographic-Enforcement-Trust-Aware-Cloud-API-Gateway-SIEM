@@ -26,7 +26,7 @@ health() { docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q 
 wait_healthy() { for _ in $(seq 1 30); do [ "$(health "$1")" = healthy ] && return 0; sleep 2; done; return 1; }
 last_reason() { # lý do của quyết định gần nhất trong log auth-svc
   docker compose logs auth-svc --no-log-prefix 2>/dev/null | grep '"msg":"authz_decision"' | tail -1 |
-    python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("reason", "?"))'
+    python3 -c 'import json,sys; print(json.loads(sys.stdin.read() or "{}").get("decision_reason", "?"))'
 }
 restore() {
   docker compose unpause opa >/dev/null 2>&1

@@ -181,7 +181,44 @@ test_every_decision_has_policy_metadata if {
 		d.policy_version == authz.policy_version
 		is_string(d.reason)
 		is_string(d.route)
+		is_string(d.route_template)
 		is_boolean(d.allow)
+	}
+}
+
+# ---------------------------------------------------------------- route_template (tuần 8, telemetry)
+
+# Kết quả mang đường dẫn MẪU của route đã khớp — cả khi cho qua lẫn khi từ chối vì role/ABAC.
+test_route_template_is_the_matched_pattern if {
+	decide("GET", "/orders/123", alice).route_template == "/orders/{id}"
+	decide("DELETE", "/orders/123", alice).route_template == "/orders/{id}"
+	decide("GET", "/orders", batch).route_template == "/orders"
+	decide("GET", "/orders/export", alice).route_template == "/orders/export"
+	decide("PATCH", "/profile/sub-alice", carol).route_template == "/profile/{id}"
+	decide("GET", "/profile/me", alice).route_template == "/profile/me"
+}
+
+# SR-10: giá trị thật của tham số (ID đối tượng) không bao giờ xuất hiện trong route_template.
+test_route_template_never_contains_real_id if {
+	every id in ["123", "sub-alice", "a6dd1608-1da4-43c5-bdcb-e80f368478f6"] {
+		t := decide("GET", concat("/", ["", "orders", id]), alice).route_template
+		t == "/orders/{id}"
+		not contains(t, id)
+	}
+}
+
+# Không khớp route nào → route_template rỗng (không phải đường dẫn client gửi).
+test_route_template_empty_when_no_route if {
+	decide("GET", "/admin/secret-area", dave).route_template == ""
+	decide("PUT", "/orders/123", dave).route_template == ""
+	d := authz.decision with input as {}
+	d.route_template == ""
+}
+
+# Mọi mẫu trong bảng route đều đúng dạng mà telemetry/schema.json cho phép.
+test_every_route_path_is_a_safe_template if {
+	every r in authz.routes {
+		regex.match(`^/[A-Za-z0-9/_{}.-]{0,63}$`, r.path)
 	}
 }
 

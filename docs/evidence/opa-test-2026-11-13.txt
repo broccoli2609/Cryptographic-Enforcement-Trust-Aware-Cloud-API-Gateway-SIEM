@@ -1,0 +1,70 @@
+docker run --rm -v /home/neckhurt2727/topic09-lab/policy:/policy:ro openpolicyagent/opa:1.21.4-static check --strict /policy
+docker run --rm -v /home/neckhurt2727/topic09-lab/policy:/policy:ro openpolicyagent/opa:1.21.4-static test /policy -v
+/policy/authz_test.rego:56:
+data.topic09.authz_test.test_manager_deletes_order: PASS (7.724144ms)
+/policy/authz_test.rego:73:
+data.topic09.authz_test.test_employee_cannot_read_other_profile: PASS (13.452307ms)
+/policy/authz_test.rego:43:
+data.topic09.authz_test.test_employee_reads_order: PASS (13.467005ms)
+/policy/authz_test.rego:69:
+data.topic09.authz_test.test_hr_reads_any_profile: PASS (18.851101ms)
+/policy/authz_test.rego:47:
+data.topic09.authz_test.test_batch_cannot_read_single_order: PASS (7.021312ms)
+/policy/authz_test.rego:51:
+data.topic09.authz_test.test_batch_lists_orders: PASS (2.105187ms)
+/policy/authz_test.rego:60:
+data.topic09.authz_test.test_employee_cannot_delete_order: PASS (13.526961ms)
+/policy/authz_test.rego:65:
+data.topic09.authz_test.test_batch_cannot_create_order: PASS (8.299082ms)
+/policy/authz_test.rego:219:
+data.topic09.authz_test.test_every_route_path_is_a_safe_template: PASS (2.175655ms)
+/policy/authz_test.rego:88:
+data.topic09.authz_test.test_sales_creates_order: PASS (8.210413ms)
+/policy/authz_test.rego:81:
+data.topic09.authz_test.test_only_hr_updates_profile: PASS (8.618233ms)
+/policy/authz_test.rego:93:
+data.topic09.authz_test.test_other_dept_cannot_create_order: PASS (10.829024ms)
+/policy/authz_test.rego:77:
+data.topic09.authz_test.test_employee_reads_own_profile_route: PASS (14.343963ms)
+/policy/authz_test.rego:98:
+data.topic09.authz_test.test_missing_dept_claim_is_denied: PASS (6.369773ms)
+/policy/authz_test.rego:102:
+data.topic09.authz_test.test_dept_compare_is_exact: PASS (7.641996ms)
+/policy/authz_test.rego:119:
+data.topic09.authz_test.test_missing_tier_claim_is_denied: PASS (9.034618ms)
+/policy/authz_test.rego:124:
+data.topic09.authz_test.test_specific_route_wins_over_param_route: PASS (9.059729ms)
+/policy/authz_test.rego:109:
+data.topic09.authz_test.test_premium_exports_orders: PASS (21.394474ms)
+/policy/authz_test.rego:129:
+data.topic09.authz_test.test_role_checked_before_attributes: PASS (10.470552ms)
+/policy/authz_test.rego:114:
+data.topic09.authz_test.test_standard_tier_cannot_export: PASS (21.332377ms)
+/policy/authz_test.rego:135:
+data.topic09.authz_test.test_unknown_route_is_denied: PASS (11.210759ms)
+/policy/authz_test.rego:154:
+data.topic09.authz_test.test_role_names_are_exact: PASS (3.969283ms)
+/policy/authz_test.rego:140:
+data.topic09.authz_test.test_method_not_in_table_is_denied: PASS (6.534069ms)
+/policy/authz_test.rego:165:
+data.topic09.authz_test.test_empty_input_is_denied: PASS (1.711578ms)
+/policy/authz_test.rego:171:
+data.topic09.authz_test.test_non_string_path_is_denied: PASS (4.256217ms)
+/policy/authz_test.rego:160:
+data.topic09.authz_test.test_roles_must_be_array: PASS (10.667648ms)
+/policy/authz_test.rego:178:
+data.topic09.authz_test.test_every_decision_has_policy_metadata: PASS (33.957365ms)
+/policy/authz_test.rego:202:
+data.topic09.authz_test.test_route_template_never_contains_real_id: PASS (27.116506ms)
+/policy/authz_test.rego:211:
+data.topic09.authz_test.test_route_template_empty_when_no_route: PASS (5.978598ms)
+/policy/authz_test.rego:146:
+data.topic09.authz_test.test_bad_path_shapes_are_denied: PASS (47.022975ms)
+/policy/authz_test.rego:227:
+data.topic09.authz_test.test_decision_log_masks_real_path: PASS (530.068µs)
+/policy/authz_test.rego:192:
+data.topic09.authz_test.test_route_template_is_the_matched_pattern: PASS (38.596485ms)
+/policy/authz_test.rego:36:
+data.topic09.authz_test.test_whoami_allowed_for_every_role: PASS (22.500162ms)
+--------------------------------------------------------------------------------
+PASS: 33/33

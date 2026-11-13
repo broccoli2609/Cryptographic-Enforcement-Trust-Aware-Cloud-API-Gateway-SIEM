@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kiểm nhanh lab sau "docker compose up -d --build".
-# Chạy:  ./scripts/smoke-test.sh      (mã thoát = số mục FAIL; tuần 6: 20 mục PASS là đạt)
+# Chạy:  ./scripts/smoke-test.sh      (mã thoát = số mục FAIL; tuần 8: 26 mục PASS là đạt)
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FAIL=0
@@ -15,7 +15,7 @@ for _ in $(seq 1 36); do
   sleep 5
 done
 
-for svc in keycloak opa auth-svc orders-api profile-api; do
+for svc in keycloak opa auth-svc orders-api profile-api opensearch vector; do
   s=$(health "$svc")
   if [ "$s" = healthy ]; then pass "$svc: healthy"; else fail "$svc: $s"; fi
 done
@@ -80,10 +80,36 @@ if openssl s_client -connect localhost:8443 -servername localhost -tls1_3 -CAfil
 else
   fail "Gateway không bắt tay được TLS 1.3 (đã chạy scripts/gen-certs.sh chưa?)"
 fi
+SIEM_FROM=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 for port in 8443 8444 8445; do
   code=$(curl -s --cacert "$CA" --max-time 5 -o /dev/null -w '%{http_code}' "https://localhost:$port/orders/whoami")
   if [ "$code" = 401 ]; then pass "Gateway :$port không token → 401"; else fail "Gateway :$port không token → $code (muốn 401)"; fi
 done
+
+# --- SIEM (tuần 8): Vector → OpenSearch. Cả hai không có port, ở mạng kín riêng (TB5) ---
+# "docker port" chỉ in cổng ĐÃ publish (image OpenSearch có EXPOSE nên "docker compose port" in ":0").
+pub="$(docker port "$(docker compose ps -q opensearch)" 2>/dev/null)$(docker port "$(docker compose ps -q vector)" 2>/dev/null)"
+if [ -z "$pub" ]; then pass "OpenSearch và Vector không publish cổng nào ra host"; else fail "SIEM đang publish cổng ra host: $pub"; fi
+members=$(docker network inspect topic09-telemetry -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | tr ' ' '\n' | sed -E 's/^topic09-lab-//; s/-[0-9]+$//' | grep . | sort | tr '\n' ' ')
+internal=$(docker network inspect topic09-telemetry -f '{{.Internal}}' 2>/dev/null)
+if [ "$members" = "opensearch vector " ] && [ "$internal" = true ]; then
+  pass "Mạng topic09-telemetry (internal) chỉ có opensearch + vector"
+else
+  fail "Mạng topic09-telemetry: thành viên '$members', internal=$internal (muốn 'opensearch vector', true)"
+fi
+init=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(docker compose ps -aq opensearch-init)" 2>/dev/null)
+if [ "$init" = "exited 0" ]; then pass "opensearch-init đã nạp mapping (dynamic: strict) rồi thoát mã 0"; else fail "opensearch-init: ${init:-không có} (muốn 'exited 0')"; fi
+# Đầu-cuối: ba request 401 ở trên phải thành sự kiện của Envoy trong SIEM (Envoy đẩy log 1 s, Vector gom lô 2 s).
+n=0
+for _ in $(seq 1 10); do
+  sleep 2
+  docker compose exec -T opensearch curl -s -X POST 'http://127.0.0.1:9200/topic09-events/_refresh' >/dev/null 2>&1
+  n=$(docker compose exec -T opensearch curl -s -H 'Content-Type: application/json' 'http://127.0.0.1:9200/topic09-events/_count' \
+    -d "{\"query\":{\"bool\":{\"filter\":[{\"term\":{\"source\":\"envoy\"}},{\"term\":{\"status_code\":401}},{\"range\":{\"event_time\":{\"gte\":\"$SIEM_FROM\"}}}]}}}" 2>/dev/null |
+    python3 -c 'import json,sys; print(json.load(sys.stdin).get("count", 0))' 2>/dev/null)
+  [ "${n:-0}" -ge 3 ] && break
+done
+if [ "${n:-0}" -ge 3 ]; then pass "Đường ống telemetry sống: 3 request 401 vừa rồi đã thành sự kiện Envoy trong SIEM"; else fail "SIEM chỉ nhận ${n:-0}/3 sự kiện Envoy sau 20 s (xem: docker compose logs vector)"; fi
 
 echo
 docker compose ps

@@ -1,0 +1,205 @@
+{
+  "dynamic": "strict",
+  "properties": {
+    "alg": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "attack_id": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "attack_label": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "aud_hash": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "authn_method": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "backend_authz_reason": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "backend_object_authz": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "backend_redacted_fields": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "client_id": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "cnf_jkt": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "crypto_verify_cycles": {
+      "type": "long"
+    },
+    "decision": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "decision_reason": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "duration_ms": {
+      "type": "double"
+    },
+    "event_time": {
+      "format": "strict_date_optional_time_nanos",
+      "type": "date_nanos"
+    },
+    "event_type": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "gateway_cycles": {
+      "type": "long"
+    },
+    "grant_type": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "idp_event": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "idp_realm": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "iss": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "kid": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "kms_calls": {
+      "type": "long"
+    },
+    "listener_port": {
+      "type": "long"
+    },
+    "method": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "opa_decision_id": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "pipeline_redacted": {
+      "type": "boolean"
+    },
+    "policy_eval_us": {
+      "type": "long"
+    },
+    "policy_id": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "policy_route": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "policy_version": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "principal_hash": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "profile": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "proof_jkt": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "proof_status": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "request_id": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "response_code_details": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "response_flags": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "route_group": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "route_template": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "scope_set": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "source": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "status_code": {
+      "type": "long"
+    },
+    "subject_dept": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "subject_roles": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "subject_tier": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "tls_cipher": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "tls_peer_fingerprint": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "tls_version": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "token_type": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "upstream_cluster": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "workload_id": {
+      "ignore_above": 512,
+      "type": "keyword"
+    }
+  }
+}
