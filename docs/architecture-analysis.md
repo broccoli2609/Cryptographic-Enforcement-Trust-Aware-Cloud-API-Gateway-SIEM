@@ -30,7 +30,7 @@ SIEM" của mức Đại học, nhẹ máy, và mọi ranh giới mạng vẫn t
 | Identity | Ai là ai? | Keycloak 26.8.0 (IdP, ký token, công bố JWKS); CA nội bộ (cert TLS cho Envoy) | xong (tuần 3–4) |
 | Data | Request đi thế nào? | Envoy 1.39.4 (PEP, kết thúc TLS 1.3); auth-svc Go (PEP: JWT, DPoP, hỏi OPA); orders-api, profile-api | xong tới DPoP (tuần 6); object/property-level ở backend (tuần 7) |
 | Policy / Control | Luật và cấu hình là gì? | OPA 1.21.4 (PDP, Rego); file cấu hình (compose, envoy.yaml, realm, policy); Vault Transit (khoá ký digest) | OPA xong (tuần 5); Vault tuần 9 |
-| Security telemetry | Chuyện gì đã xảy ra? | log JSON của mọi thành phần → Vector (HMAC định danh, xoá token, hash chain) → OpenSearch; digester ký digest định kỳ | tuần 8–10 |
+| Security telemetry | Chuyện gì đã xảy ra? | log JSON của mọi thành phần → Vector 0.60.0 (HMAC định danh, allow-list trường, che token) → OpenSearch 3.8.0; hash chain + digester ký digest định kỳ | Vector → OpenSearch xong (tuần 8, `telemetry/README.md`); hash chain, digest tuần 9–10 |
 
 Ghi chú: ô Keycloak trong sơ đồ ghi "ký token ES256"; cấu hình thật ký **RS256**
 (`defaultSignatureAlgorithm`, token thật có `alg: RS256`). ES256 dùng cho `private_key_jwt` của
@@ -119,7 +119,12 @@ Triển khai thật chỉ nên mở P2. P0 và P1 được giữ chạy song son
 | DPoP: cửa sổ `iat` ±30 s, cache `jti` trong bộ nhớ có trần, ghi `jti` sau khi mọi bước qua, đầy thì từ chối | đủ chống replay cho một bản auth-svc; không cần Redis | mất cache khi restart; DoS bằng cách làm đầy cache (§9) |
 | Client DPoP riêng (`web-app-dpop`) | giữ token bearer cho P0/P1 để so sánh | hai client cùng redirect URI |
 | Realm-as-code + script áp một client qua Admin REST | tái lập được trên máy sạch, không phải xoá realm khi thêm client | hai đường cấu hình phải khớp nhau (script đọc từ chính file realm) |
-| Ghim phiên bản image (Keycloak 26.8.0, Envoy 1.39.4, OPA 1.21.4, distroless) | tái lập được; chọn bản vá mới nhất của dòng ổn định, không lấy bản vừa ra | phải tự theo dõi bản vá |
+| Ghim phiên bản image (Keycloak 26.8.0, Envoy 1.39.4, OPA 1.21.4, Vector 0.60.0, OpenSearch 3.8.0, distroless) | tái lập được; chọn bản vá mới nhất của dòng ổn định, không lấy bản vừa ra | phải tự theo dõi bản vá |
+| Một schema telemetry chung (`telemetry/schema.json`), là allow-list; service ghi log bằng đúng tên trường của schema | hunt và dataset dùng một bộ tên; trường không khai báo thì không vào SIEM (SR-10); `go test` đỏ nếu log có khoá ngoài schema | đổi tên trường phải sửa cả service lẫn script kiểm |
+| Giả danh bằng HMAC-SHA256 có khoá + tiền tố tách miền, làm ở Vector | `sub` thuộc một tập nhỏ đã biết, hash trần băm thử là ra; service không cần biết khoá | là giả danh, không phải ẩn danh: ai có khoá tính lại được; đổi khoá mất liên kết với sự kiện cũ |
+| Ba lớp chặn dữ liệu nhạy cảm: service không ghi → Vector `seal` (allow-list, kiểm dạng, che token) → OpenSearch `dynamic: strict`; cộng scanner chạy tự động | mỗi lớp bắt lỗi của lớp trước; `X-Request-Id` do kẻ gọi thẳng backend đặt là ví dụ lớp 1 không tự chặn được | cấu hình ở ba nơi, giữ đồng bộ bằng `make vector-validate` |
+| OpenSearch tắt security plugin, bảo vệ bằng mạng internal chỉ chung với Vector | cùng cách đã chọn cho OPA; toàn vẹn log dựa vào hash chain + digest ký (tuần 9) | TB5 vẫn chỉ dựa vào mạng; sửa log *phát hiện* được chứ không *ngăn* được |
+| Vector đọc log qua Docker socket (mount chỉ đọc), nguồn = container Docker báo | không sửa service, không mở cổng nhận log; service không tự xưng nguồn khác được | ai điều khiển được Vector thì gọi được Docker API (T11) |
 
 ## 8. Ba giải thích bắt buộc (checklist mục 22)
 
@@ -169,7 +174,7 @@ Checklist: *"mTLS/workload identity được đánh giá cho east-west hoặc sc
 gán được cho đúng cơ chế đó: P1 − P0 = chi phí JWT chặt + OPA; P2 − P1 = chi phí DPoP (kiểm chữ ký
 proof + cache `jti`). Theo đề bài, P1 gộp DPoP với OPA thì không tách được hai chi phí này.
 
-## 9. Bản đồ threat → cơ chế → bằng chứng (tới tuần 7)
+## 9. Bản đồ threat → cơ chế → bằng chứng (tới tuần 8)
 
 | Threat | SR | Cơ chế đã có | Bằng chứng | Còn hở |
 |---|---|---|---|---|
@@ -177,10 +182,10 @@ proof + cache `jti`). Theo đề bài, P1 gộp DPoP với OPA thì không tách
 | T2 JWT validation failure | 02, 08 | allow-list `alg`, ghim `iss` + JWKS, `aud`/`exp`/`nbf`/`typ`, JWKS TTL | `auth-svc-unit-tests-2026-10-31.txt`, `gateway-p{0,1}-*` | khoá realm lộ (§8.1) |
 | T3 broken authentication | 03 | PKCE S256, `redirect_uri` chính xác, brute-force detection, `private_key_jwt` | `pkce-negative-*`, `client-credentials-*` | không MFA |
 | T4 broken authorization | 06 | OPA: RBAC route+method, ABAC `dept`/`tier`, mặc định từ chối (BFLA); backend: `owner_id` + manager cùng phòng (BOLA), `salary_band` chỉ HR + allow-list trường ghi (API3), log `backend_object_authz` | `opa-test-2026-10-31.txt` (29/29), `authz-opa-p1-2026-11-09.txt` (24/24), `object-authz-2026-11-09.txt` (61/61), `backend-unit-tests-2026-11-09.txt` | lỗi logic backend; TB3 tin header theo vị trí mạng |
-| T5 gateway bypass | 01, 06 | backend không `ports:`, mạng internal, xoá `X-User` | `smoke-test-2026-10-31.txt` (20/20), `gateway-p1-*` | container bị chiếm trong mạng (§8.2) |
+| T5 gateway bypass | 01, 06 | backend không `ports:`, mạng internal, xoá `X-User`; từ tuần 8: request gọi thẳng backend để lại sự kiện `backend_request` không có `request_id` hợp lệ và không có sự kiện Envoy đi kèm (dấu hiệu cho S8) | `smoke-test-2026-11-13.txt` (26/26), `gateway-p1-*`, `siem-pipeline-2026-11-13.txt` mục E | container bị chiếm trong mạng (§8.2) |
 | T7 KMS/key compromise | 08 | (tuần 9) Vault token quyền hẹp, audit device | — | khoá Keycloak phần mềm (§8.1) |
 | T8 policy compromise | 06, 11 | policy mount chỉ đọc, `policy_version` trong log, OPA không lộ API, fail closed | `failclosed-2026-10-31.txt` (11/11), smoke test kiểm thành viên mạng policy | ai sửa được git + restart OPA |
-| T9 telemetry tampering | 09, 10 | (tuần 8–10) hash chain, digest ký, `verify-chain` | — | log giả trước Vector |
+| T9 telemetry tampering | 09, 10 | tuần 8: nguồn sự kiện = container Docker báo (không tin trường `service`); định danh băm HMAC; allow-list trường + che token ở Vector; mapping `dynamic: strict`; scanner. Tuần 9–10: hash chain, digest ký, `verify-chain` | `siem-pipeline-2026-11-13.txt` (55/55), `telemetry-schema-2026-11-13.txt` (4/4), `vector-unit-tests-2026-11-13.txt` (21/21) | log giả trước Vector; OpenSearch không xác thực (ai vào được mạng telemetry sửa/xoá được log — chưa có hash chain); Vector giữ Docker socket |
 | T10 resource abuse | 11 | kiểm rẻ trước; giới hạn header 16 KiB, token 8 KiB, proof 4 KiB; cache `jti` có trần | unit test, `dpop-p2-*` (C14) | làm đầy cache `jti` bằng token hợp lệ; DoS lớn |
 | T11 cloud/admin abuse | 12 | console chỉ `127.0.0.1`, không mật khẩu mặc định, admin events bật | smoke test | ai có Docker là có tất cả |
 

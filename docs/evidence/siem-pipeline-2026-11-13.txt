@@ -1,0 +1,107 @@
+# Đường ống telemetry: 5 nguồn → Vector → OpenSearch — 2026-11-13T07:22:59+00:00
+# Image: timberio/vector:0.60.0-alpine · opensearchproject/opensearch:3.8.0
+
+## A. Hạ tầng
+  [PASS] opensearch: healthy
+  [PASS] vector: healthy
+  [PASS] opensearch không publish cổng nào ra host
+  [PASS] vector không publish cổng nào ra host
+  [PASS] mạng topic09-telemetry (internal) chỉ có opensearch + vector
+  [PASS] OpenSearch KHÔNG gọi thẳng được từ host
+  [PASS] index topic09-events: mapping dynamic=strict, 52 trường
+  [PASS] schema ↔ allow-list của Vector ↔ mapping OpenSearch khớp nhau
+  [PASS] vector: file hệ thống chỉ đọc, bỏ mọi capability
+
+## B. Luồng: request mẫu → sự kiện trong SIEM
+  [PASS] đã gửi 23 request qua P0/P1/P2
+  [PASS] xuất sự kiện từ SIEM kể từ 2026-11-13T07:23:01Z (79 sự kiện)
+  sự kiện theo nguồn: auth-svc=18, envoy=24, keycloak=11, opa=14, orders-api=10, profile-api=2
+  [PASS] nguồn envoy: có sự kiện trong SIEM
+  [PASS] nguồn auth-svc: có sự kiện trong SIEM
+  [PASS] nguồn opa: có sự kiện trong SIEM
+  [PASS] nguồn orders-api: có sự kiện trong SIEM
+  [PASS] nguồn profile-api: có sự kiện trong SIEM
+  [PASS] nguồn keycloak: có sự kiện trong SIEM
+  [PASS] mỗi request có đúng 1 sự kiện gateway_access của Envoy (23/23)
+  [PASS] request bị gateway chặn thì KHÔNG có sự kiện backend nào
+  [PASS] request tới auth-svc đều có sự kiện authz_decision cùng request_id (17/17)
+  [PASS] mỗi opa_decision_id của auth-svc có sự kiện policy_decision của OPA (13/13)
+  [PASS] request tới backend (via_upstream) đều có sự kiện backend_request (11/11)
+  [PASS] BOLA (P1): auth-svc decision=allow + orders-api backend_object_authz=deny/not_owner, request_id=83feddb4-6187-419a-9091-aa72bb3b08ae
+  [PASS] BFLA (P1): auth-svc deny/role_not_allowed trên /orders/{id}, Envoy deny, không có sự kiện backend
+  [PASS] DPoP replay (P2): proof_status=replay, decision_reason=dpop_replay, token_type=DPoP
+  [PASS] token trộm + khoá khác (P2): proof_status=key_mismatch, cnf_jkt ≠ proof_jkt (bằng chứng cho hunt H2)
+  [PASS] P0: không có sự kiện auth-svc; Envoy vẫn cho principal_hash (từ token jwt_authn đã kiểm)
+  [PASS] property-level: profile-api ghi backend_redacted_fields=salary_band cho manager
+  [PASS] batch-worker: authn_method=private_key_jwt (suy từ client_id)
+  [PASS] Keycloak: có LOGIN, CODE_TO_TOKEN, CLIENT_LOGIN (thấy: CLIENT_LOGIN, CODE_TO_TOKEN, LOGIN)
+  [PASS] Keycloak: CLIENT_LOGIN của batch-worker có grant_type=client_credentials
+
+## C. Sự kiện trong SIEM ↔ telemetry/schema.json (kiểm nghiêm, không cho khoá lạ)
+  Đã đọc 79 sự kiện. Theo nguồn: auth-svc=18, envoy=24, keycloak=11, opa=14, orders-api=10, profile-api=2
+  
+  Trường core (mục 13.1 đề bài) — nguồn nào có giá trị trong SIEM:
+     1  event_time             week8         auth-svc, envoy, keycloak, opa, orders-api, profile-api
+     2  request_id             week8         auth-svc, envoy, orders-api, profile-api
+     3  principal_hash         week8         auth-svc, envoy, keycloak, opa
+     4  client_id              week8         auth-svc, envoy, keycloak, opa
+     5  workload_id            out_of_scope  —
+     6  authn_method           week8         auth-svc, envoy, keycloak, opa
+     7  token_type             week8         auth-svc
+     8  alg                    week8         auth-svc
+     9  kid                    week8         auth-svc
+    10  iss                    week8         auth-svc
+    11  aud_hash               week8         auth-svc
+    12  scope_set              week8         auth-svc
+    13  proof_status           week8         auth-svc
+    14  policy_id              week8         auth-svc, opa
+    15  policy_version         week8         auth-svc, opa
+    16  decision               week8         auth-svc, envoy, keycloak, opa
+    17  decision_reason        week8         auth-svc, envoy, keycloak, opa
+    18  route_template         week8         auth-svc, opa, orders-api, profile-api
+    19  backend_object_authz   week8         orders-api, profile-api
+    20  status_code            week8         envoy, orders-api, profile-api
+    21  gateway_cycles         week11        —
+    22  crypto_verify_cycles   week11        —
+    23  policy_eval_us         week8         auth-svc, opa
+    24  kms_calls              week9         —
+    25  tls_peer_fingerprint   out_of_scope  —
+    26  attack_label           week10        —
+    27  attack_id              week10        —
+  Kết quả siem: ĐẠT
+  [PASS] 79 sự kiện đều đúng schema; 20 trường core của tuần 8 đều có nguồn điền
+
+## D. Giả danh: principal_hash và aud_hash có đúng là HMAC-SHA256 với khoá trong .env không?
+  [PASS] envoy: principal_hash của alice = HMAC-SHA256(khoá, "principal:" + sub)  [d4b2f89e20bf…]
+  [PASS] auth-svc: principal_hash của alice = HMAC-SHA256(khoá, "principal:" + sub)  [d4b2f89e20bf…]
+  [PASS] opa: sự kiện policy_decision của cùng quyết định mang cùng principal_hash
+  [PASS] keycloak: sự kiện LOGIN của alice mang cùng principal_hash → nối được IdP ↔ gateway ↔ PDP
+  [PASS] giá trị trong SIEM KHÁC SHA-256(sub) (hash trần) và khác HMAC không có tiền tố tách miền
+  [PASS] mỗi user một hash khác nhau; thấy trong SIEM hash của: alice, bob, carol, dave, service-account-batch-worker
+  [PASS] auth-svc: aud_hash = HMAC-SHA256(khoá, "aud:topic09-api")
+  [PASS] không sub nào của 5 user xuất hiện trong SIEM; không còn khoá principal / aud / sub
+
+## E. Chèn token vào log (kịch bản S8: gọi thẳng backend, vòng qua gateway)
+  [PASS] từ trong mạng backend gọi thẳng orders-api được, tự xưng X-User (điểm yếu TB3 đã ghi trong threat model)
+  [PASS] log THÔ của orders-api có token giả trong request_id (1 dòng) — mối nguy là thật
+  [PASS] SIEM có sự kiện backend_request tương ứng, request_id đã bị BỎ (1 sự kiện)
+  [PASS] sự kiện đó mang cờ pipeline_redacted=true (dấu hiệu để điều tra)
+  [PASS] token giả KHÔNG có trong SIEM; không còn chuỗi 'eyJ' nào
+  [PASS] không có sự kiện Envoy/auth-svc nào đi kèm → backend_request mồ côi = dấu hiệu vòng qua gateway (S8)
+
+## F. Scanner (scripts/siem-scan.sh)
+  [PASS] scanner bắt được: JWT trong một trường
+  [PASS] scanner bắt được: khoá PEM
+  [PASS] scanner bắt được: mã uỷ quyền
+  [PASS] scanner bắt được: giá trị khoá HMAC trong .env
+  [PASS] scanner bắt được: sub thật của một user
+  [PASS] scanner bắt được: username của một user
+  [PASS] scanner KHÔNG báo nhầm sự kiện sạch
+  Quét SIEM (index topic09-events): 795 dòng, 21 mẫu (giá trị bí mật trong .env; header Authorization (Bearer/DPoP …); khoá/chứng chỉ PEM (-----BEGIN); mã uỷ quyền (code=); token (eyJ); định danh thô (email); định danh thô (sub của user); định danh thô (username))
+  Kết quả quét: SẠCH — 0 phát hiện
+  [PASS] toàn bộ SIEM sạch: không token, khoá, mã uỷ quyền, bí mật của lab hay định danh thô
+
+## G. Lớp chặn thứ hai: OpenSearch từ chối tài liệu có trường ngoài schema
+  [PASS] ghi tài liệu có trường "authorization" → HTTP 400 strict_dynamic_mapping_exception (không được lưu)
+
+Kết quả: 55/55 PASS

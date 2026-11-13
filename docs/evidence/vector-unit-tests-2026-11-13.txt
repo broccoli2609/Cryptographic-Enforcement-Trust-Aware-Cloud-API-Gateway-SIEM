@@ -1,0 +1,22 @@
+Running tests
+test envoy P0 cho qua: băm principal, suy profile + decision, bỏ client_ip ... passed
+test envoy chặn (jwt_authn): decision = deny, không ghi upstream_cluster ... passed
+test envoy không có route: route_group = other, decision null ... passed
+test envoy: dòng log khởi động (không phải JSON) bị bỏ ... passed
+test auth-svc P2 cho qua: băm principal và aud, giữ jkt (khoá công khai), bỏ khoá thô ... passed
+test auth-svc từ chối: trường rỗng biến mất, batch-worker → private_key_jwt ... passed
+test auth-svc: log vận hành (listening) không vào SIEM ... passed
+test cùng sub ở Envoy và auth-svc → cùng principal_hash = HMAC-SHA256 (đối chiếu openssl) ... passed
+test OPA decision log: ánh xạ đủ trường, băm sub, không có input.path ... passed
+test OPA: dòng 'Received request' của health check không vào SIEM ... passed
+test backend: BOLA bị chặn — nguồn lấy từ nhãn compose của container ... passed
+test backend: /healthz của Docker không vào SIEM ... passed
+test S8: token nằm trong X-Request-Id → request_id bị bỏ, gắn cờ, không còn 'eyJ' ... passed
+test method lạ (không phải chữ cái) → OTHER + cờ ... passed
+test giá trị dạng JWT / PEM / code= trong trường hợp lệ bị che ... passed
+test trường lạ (authorization, cookie, body) không qua được allow-list ... passed
+test event_time sai dạng → dùng thời điểm Docker nhận, vẫn đúng RFC 3339 UTC ... passed
+test Keycloak LOGIN: giữ loại sự kiện + realm + client, băm userId, bỏ username/IP/redirect_uri ... passed
+test Keycloak LOGIN_ERROR: decision = deny, lý do là mã lỗi; userId null → không có hash ... passed
+test Keycloak CLIENT_LOGIN của batch-worker: grant client_credentials → private_key_jwt ... passed
+test Keycloak: log thường (không phải org.keycloak.events) không vào SIEM ... passed
