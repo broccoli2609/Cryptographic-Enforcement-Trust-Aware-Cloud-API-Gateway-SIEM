@@ -41,6 +41,10 @@ type Decision struct {
 	PolicyID      string
 	PolicyVersion string
 	Route         string // id route theo mẫu, ví dụ "orders.read" — an toàn để ghi log
+	// RouteTemplate là đường dẫn mẫu của route đã khớp, ví dụ "/orders/{id}" (tuần 8, trường
+	// route_template của telemetry). Chỉ để ghi log: thiếu hoặc sai dạng thì rỗng, KHÔNG làm
+	// quyết định bị coi là lỗi.
+	RouteTemplate string
 	Reason        string
 	DecisionID    string // decision_id của OPA, để nối log auth-svc với decision log của OPA
 }
@@ -131,6 +135,7 @@ func (c *Client) Decide(ctx context.Context, in Input) (Decision, error) {
 			PolicyID      *string `json:"policy_id"`
 			PolicyVersion *string `json:"policy_version"`
 			Route         *string `json:"route"`
+			RouteTemplate *string `json:"route_template"`
 			Reason        *string `json:"reason"`
 		} `json:"result"`
 		DecisionID string `json:"decision_id"`
@@ -149,14 +154,36 @@ func (c *Client) Decide(ctx context.Context, in Input) (Decision, error) {
 		*r.PolicyVersion == "" || r.Reason == nil || *r.Reason == "" || r.Route == nil {
 		return Decision{}, fmt.Errorf("%w: thiếu trường trong result", ErrBadResponse)
 	}
-	return Decision{
+	d := Decision{
 		Allow:         *r.Allow,
 		PolicyID:      clip(*r.PolicyID, 64),
 		PolicyVersion: clip(*r.PolicyVersion, 32),
 		Route:         clip(*r.Route, 64),
 		Reason:        clip(*r.Reason, 64),
 		DecisionID:    clip(out.DecisionID, 64),
-	}, nil
+	}
+	// route_template là trường telemetry (không tham gia quyết định) nên là tuỳ chọn: bản policy
+	// cũ không trả trường này vẫn dùng được. Giá trị sai dạng bị bỏ, không ghi vào log.
+	if r.RouteTemplate != nil && safeTemplate(*r.RouteTemplate) {
+		d.RouteTemplate = *r.RouteTemplate
+	}
+	return d, nil
+}
+
+// safeTemplate: đường dẫn mẫu bắt đầu bằng "/", tối đa 64 ký tự, chỉ gồm chữ, số và
+// "/" "_" "-" "." "{" "}" — cùng dạng với trường route_template trong telemetry/schema.json.
+func safeTemplate(s string) bool {
+	if len(s) == 0 || len(s) > 64 || s[0] != '/' {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '/' || c == '_' || c == '-' || c == '.' || c == '{' || c == '}') {
+			return false
+		}
+	}
+	return true
 }
 
 func clip(s string, n int) string {

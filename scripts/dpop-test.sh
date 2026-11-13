@@ -171,10 +171,10 @@ for e in "${DENIED[@]}"; do
   rid=${e%%|*}
   printf '  %-64s %s\n' "${e#*|}" "$(grep -F "\"request_id\":\"$rid\"" "$TMP/log" | tail -1 | python3 -c 'import json,sys
 d = json.loads(sys.stdin.read() or "{}")
-r = d.get("reason", "(Envoy chặn trước auth-svc)" if not d else "")
-extra = ""
+r = d.get("decision_reason", "(Envoy chặn trước auth-svc)" if not d else "")
+extra = " proof_status=%s" % d["proof_status"] if d.get("proof_status") else ""
 if d.get("cnf_jkt") and d.get("proof_jkt") and d["cnf_jkt"] != d["proof_jkt"]:
-    extra = " cnf_jkt=%s… proof_jkt=%s…" % (d["cnf_jkt"][:8], d["proof_jkt"][:8])
+    extra += " cnf_jkt=%s… proof_jkt=%s…" % (d["cnf_jkt"][:8], d["proof_jkt"][:8])
 print("profile=%s reason=%s%s" % (d.get("profile", "-"), r, extra))')"
 done
 echo

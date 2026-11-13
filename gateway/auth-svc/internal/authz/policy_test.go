@@ -58,7 +58,7 @@ func TestCheckDeniesWith403WhenPolicyDenies(t *testing.T) {
 	if d.GetBody() != `{"error":"forbidden"}` {
 		t.Fatalf("body chỉ được có mã chung, nhận %q", d.GetBody())
 	}
-	for _, want := range []string{`"decision":"deny"`, `"reason":"role_not_allowed"`, `"policy_id":"topic09.authz"`,
+	for _, want := range []string{`"decision":"deny"`, `"decision_reason":"role_not_allowed"`, `"policy_id":"topic09.authz"`,
 		`"policy_version":"1.0.0"`, `"policy_route":"orders.delete"`, `"opa_decision_id":"opa-9"`} {
 		if !strings.Contains(logs.String(), want) {
 			t.Fatalf("log thiếu %s:\n%s", want, logs.String())
@@ -89,7 +89,7 @@ func TestCheckFailsClosedWhenPolicyNotConfigured(t *testing.T) {
 	var logs bytes.Buffer
 	s := &Server{Verifier: fakeVerifier{}, Logger: newServer("", &logs).Logger}
 	resp, _ := s.Check(context.Background(), checkReq("/orders/1", map[string]string{"authorization": "Bearer " + goodToken}))
-	if resp.GetOkResponse() != nil || !strings.Contains(logs.String(), `"reason":"policy_not_configured"`) {
+	if resp.GetOkResponse() != nil || !strings.Contains(logs.String(), `"decision_reason":"policy_not_configured"`) {
 		t.Fatalf("thiếu PDP mà vẫn cho qua: %v\n%s", resp, logs.String())
 	}
 }

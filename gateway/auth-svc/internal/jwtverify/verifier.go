@@ -90,8 +90,11 @@ type Claims struct {
 	Roles     []string
 	Dept      string
 	Tier      string
-	Alg       string // alg trong header (đã qua allow-list)
-	Kid       string
+	// Scopes là claim scope đã chuẩn hoá (bỏ trùng, sắp xếp) — chỉ để ghi telemetry (trường
+	// scope_set, tuần 8). Lab phân quyền bằng role, không bằng scope.
+	Scopes []string
+	Alg    string // alg trong header (đã qua allow-list)
+	Kid    string
 	// CnfJKT là cnf.jkt (RFC 9449 §6.1): thumbprint khoá DPoP mà token được gắn vào. Rỗng = token
 	// bearer thường. P2 bắt buộc có; P1 thấy có thì từ chối (chống hạ cấp, RFC 9449 §7.2).
 	CnfJKT string
@@ -147,6 +150,7 @@ type payload struct {
 	Username    string          `json:"preferred_username"`
 	Dept        string          `json:"dept"`
 	Tier        string          `json:"tier"`
+	Scope       json.RawMessage `json:"scope"` // RawMessage: kiểu lạ thì bỏ qua, không làm hỏng token
 	RealmAccess struct {
 		Roles []string `json:"roles"`
 	} `json:"realm_access"`
@@ -278,9 +282,48 @@ func (v *Verifier) Verify(ctx context.Context, token string) (*Claims, error) {
 		Subject: p.Sub, Issuer: p.Iss, Audience: aud,
 		ExpiresAt: exp, NotBefore: nbf, IssuedAt: iat,
 		ID: p.Jti, Type: p.Typ, ClientID: p.Azp, Username: p.Username,
-		Roles: p.RealmAccess.Roles, Dept: p.Dept, Tier: p.Tier,
+		Roles: p.RealmAccess.Roles, Dept: p.Dept, Tier: p.Tier, Scopes: parseScopes(p.Scope),
 		Alg: h.Alg, Kid: h.Kid, CnfJKT: clip(p.Cnf.JKT, 64),
 	}, nil
+}
+
+// maxScopes giới hạn số scope ghi vào telemetry (token Keycloak của lab có 3: openid profile email).
+const maxScopes = 16
+
+// parseScopes đọc claim scope (RFC 8693 §4.2: MỘT chuỗi, các scope cách nhau bằng dấu cách) và
+// chuẩn hoá để ghi log: bỏ trùng, sắp xếp, tối đa maxScopes.
+//
+// Hàm này chỉ phục vụ telemetry nên không bao giờ làm token bị từ chối: claim thiếu, sai kiểu
+// (mảng, số) hay scope chứa ký tự lạ đều chỉ bị bỏ qua. Scope lạ bị BỎ chứ không sửa — giá trị
+// này đi vào SIEM, không để token nhồi chuỗi tuỳ ý vào đó.
+func parseScopes(raw json.RawMessage) []string {
+	var s string
+	if len(raw) == 0 || json.Unmarshal(raw, &s) != nil {
+		return nil
+	}
+	var out []string
+	for _, sc := range strings.Fields(s) {
+		if safeScope(sc) && !slices.Contains(out, sc) && len(out) < maxScopes {
+			out = append(out, sc)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// safeScope: 1–64 ký tự, chỉ gồm chữ, số và ":" "." "_" "/" "-".
+func safeScope(s string) bool {
+	if len(s) == 0 || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == ':' || c == '.' || c == '_' || c == '/' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 var errKeyType = errors.New("key type does not match alg")

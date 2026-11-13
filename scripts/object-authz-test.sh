@@ -229,7 +229,7 @@ for row in open(f"{tmp}/cases.tsv", encoding="utf-8"):
     elif a:
         x = a[-1]
         gw_ok = (x["decision"] == "allow") == (layer == "backend")
-        gw = f"auth-svc {x['decision']} reason={x['reason']} route={x.get('policy_route') or '-'} policy={x.get('policy_id')}@{x.get('policy_version')}"
+        gw = f"auth-svc {x['decision']} reason={x['decision_reason']} route={x.get('policy_route') or '-'} policy={x.get('policy_id')}@{x.get('policy_version')}"
     else:
         gw_ok, gw = False, "(không thấy log auth-svc)"
     if layer == "backend":
@@ -238,7 +238,7 @@ for row in open(f"{tmp}/cases.tsv", encoding="utf-8"):
             got = f"{y.get('backend_object_authz')}/{y.get('backend_authz_reason')}"
             red = f" redacted={y['backend_redacted_fields']}" if y.get("backend_redacted_fields") else ""
             be_ok = got == want
-            be = f"backend_object_authz={y.get('backend_object_authz')} reason={y.get('backend_authz_reason')}{red} [{y.get('service')} {y.get('route_template')} → {y.get('status_code')}]"
+            be = f"backend_object_authz={y.get('backend_object_authz')} reason={y.get('backend_authz_reason')}{red} [{y.get('service')} {y.get('method')} {y.get('route_template')} → {y.get('status_code')}]"
             if not be_ok:
                 be += f"  ← muốn {want}"
         else:

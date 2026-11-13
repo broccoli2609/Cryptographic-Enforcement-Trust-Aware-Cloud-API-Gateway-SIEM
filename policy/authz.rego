@@ -15,16 +15,18 @@
 #   }
 #
 # Kết quả luôn là một object có policy_id, policy_version, route, reason (luật policy.md):
-#   {"allow": false, "policy_id": "topic09.authz", "policy_version": "1.0.0",
-#    "route": "orders.delete", "reason": "role_not_allowed"}
+#   {"allow": false, "policy_id": "topic09.authz", "policy_version": "1.1.0",
+#    "route": "orders.delete", "route_template": "/orders/{id}", "reason": "role_not_allowed"}
 #
 # Đổi luật thì tăng policy_version — auth-svc ghi số này vào log của mỗi quyết định,
 # nên khi điều tra (hunt H4) biết quyết định nào dùng bản policy nào.
+#   1.0.0 (tuần 5)  RBAC route + method, ABAC dept / tier.
+#   1.1.0 (tuần 8)  kết quả thêm route_template cho telemetry; LUẬT KHÔNG ĐỔI.
 package topic09.authz
 
 policy_id := "topic09.authz"
 
-policy_version := "1.0.0"
+policy_version := "1.1.0"
 
 # ---------------------------------------------------------------- Bảng route (RBAC)
 # Khớp từ trên xuống: route ĐẦU TIÊN khớp cả method lẫn path được dùng (giống bảng route
@@ -142,13 +144,23 @@ default route_id := ""
 
 route_id := route.id
 
+# Đường dẫn MẪU của route đã khớp ("/orders/{id}"), cho trường route_template của telemetry
+# (tuần 8). Lấy từ bảng route ở trên — một nguồn duy nhất — nên log của gateway không bao giờ
+# chứa đường dẫn thật (ID đơn hàng, ID người dùng) mà vẫn biết request thuộc mẫu nào (SR-10).
+# Không khớp route nào → rỗng.
+default route_template := ""
+
+route_template := route.path
+
 # ---------------------------------------------------------------- Kết quả cho auth-svc
-# Luôn xác định (allow, reason, route_id đều có giá trị mặc định), nên OPA không bao giờ trả
-# "result" rỗng cho đường dẫn này. auth-svc vẫn coi thiếu "result" là lỗi → từ chối (SR-11).
+# Luôn xác định (allow, reason, route_id, route_template đều có giá trị mặc định), nên OPA
+# không bao giờ trả "result" rỗng cho đường dẫn này. auth-svc vẫn coi thiếu "result" là lỗi →
+# từ chối (SR-11).
 decision := {
 	"allow": allow,
 	"policy_id": policy_id,
 	"policy_version": policy_version,
 	"route": route_id,
+	"route_template": route_template,
 	"reason": reason,
 }

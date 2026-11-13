@@ -161,7 +161,7 @@ func TestCheckDeniesInvalidTokenWith401AndWWWAuthenticate(t *testing.T) {
 		t.Fatalf(`thiếu WWW-Authenticate: Bearer error="invalid_token" (RFC 6750), nhận %q`, www)
 	}
 	// Client chỉ nhận mã chung; lý do chi tiết chỉ có trong log.
-	if strings.Contains(d.GetBody(), "alg") || !strings.Contains(logs.String(), `"reason":"alg_not_allowed"`) {
+	if strings.Contains(d.GetBody(), "alg") || !strings.Contains(logs.String(), `"decision_reason":"alg_not_allowed"`) {
 		t.Fatalf("body = %q, log = %s", d.GetBody(), logs.String())
 	}
 }
@@ -194,7 +194,7 @@ func TestDecisionLogNeverContainsTokenOrRealPath(t *testing.T) {
 			t.Fatalf("log chứa %q:\n%s", leak, out)
 		}
 	}
-	for _, want := range []string{`"route_group":"/orders"`, `"route_group":"/profile"`, `"decision":"allow"`, `"decision":"deny"`, `"reason":"expired"`} {
+	for _, want := range []string{`"route_group":"/orders"`, `"route_group":"/profile"`, `"decision":"allow"`, `"decision":"deny"`, `"decision_reason":"expired"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("log thiếu %s:\n%s", want, out)
 		}

@@ -126,7 +126,7 @@ func TestP2Rejects(t *testing.T) {
 			if w := wwwAuth(t, resp); !strings.HasPrefix(w, "DPoP ") || !strings.Contains(w, tc.www) {
 				t.Fatalf("WWW-Authenticate = %q, muốn chứa %q (RFC 9449 §7.1)", w, tc.www)
 			}
-			if !strings.Contains(logs.String(), `"reason":"`+tc.reason+`"`) {
+			if !strings.Contains(logs.String(), `"decision_reason":"`+tc.reason+`"`) {
 				t.Fatalf("log thiếu reason %s:\n%s", tc.reason, logs.String())
 			}
 		})
@@ -171,7 +171,7 @@ func TestP2FailsClosedWhenDPoPNotConfigured(t *testing.T) {
 	var logs bytes.Buffer
 	resp, _ := newServer(jwtverify.ReasonBadSignature, &logs).Check(context.Background(),
 		p2Req("GET", "/orders/whoami", map[string]string{"authorization": "DPoP " + dpopToken, "dpop": "p"}))
-	if resp.GetOkResponse() != nil || !strings.Contains(logs.String(), `"reason":"dpop_not_configured"`) {
+	if resp.GetOkResponse() != nil || !strings.Contains(logs.String(), `"decision_reason":"dpop_not_configured"`) {
 		t.Fatalf("P2 thiếu bộ kiểm DPoP mà vẫn cho qua: %v", resp)
 	}
 }
@@ -185,7 +185,7 @@ func TestP1RejectsDPoPBoundTokenAsBearer(t *testing.T) {
 	if d := resp.GetDeniedResponse(); d == nil || d.GetStatus().GetCode() != typev3.StatusCode_Unauthorized {
 		t.Fatalf("muốn 401, nhận %v", resp)
 	}
-	if !strings.Contains(logs.String(), `"reason":"dpop_bound_token_as_bearer"`) {
+	if !strings.Contains(logs.String(), `"decision_reason":"dpop_bound_token_as_bearer"`) {
 		t.Fatalf("log thiếu lý do:\n%s", logs.String())
 	}
 }

@@ -63,7 +63,19 @@ type Server struct {
 	Logger       *slog.Logger
 }
 
-// decision gom thông tin của một quyết định để ghi đúng một dòng log.
+// Giá trị của trường proof_status (telemetry/schema.json): kết quả kiểm sender-binding.
+const (
+	proofNotApplicable = "not_applicable" // profile không dùng DPoP (P1)
+	proofNotChecked    = "not_checked"    // P2 nhưng bị từ chối trước bước kiểm proof
+	proofValid         = "valid"
+	proofMissing       = "missing"      // không có header DPoP
+	proofReplay        = "replay"       // jti đã dùng — hunt H1
+	proofKeyMismatch   = "key_mismatch" // khoá trong proof ≠ cnf.jkt — hunt H2
+	proofInvalid       = "invalid"      // lỗi proof khác; chi tiết ở decision_reason
+)
+
+// decision gom thông tin của một quyết định để ghi đúng một dòng log. Tên trường trong log
+// theo telemetry/schema.json (tuần 8).
 type decision struct {
 	requestID, method, route string
 	profile                  string
@@ -71,10 +83,18 @@ type decision struct {
 	reason                   string
 	principal, clientID      string
 	alg, kid                 string
+	// Từ token ĐÃ KIỂM (tuần 8): loại token, issuer, audience, scope. Rỗng khi token không qua
+	// được bước kiểm — không bao giờ ghi claim của token chưa kiểm chữ ký.
+	tokenType, iss, aud, scopeSet string
 	// Từ OPA (tuần 5): bản policy nào ra quyết định, theo route mẫu nào.
 	policyID, policyVersion, policyRoute, opaDecisionID string
+	// routeTemplate là đường dẫn mẫu OPA đã khớp ("/orders/{id}"); rỗng nếu chưa hỏi OPA.
+	routeTemplate string
+	// policyEvalUS: thời gian khứ hồi của lần gọi OPA (µs). nil = không gọi OPA.
+	policyEvalUS any
 	// DPoP (tuần 6): thumbprint khoá CÔNG KHAI trong token (cnf.jkt) và trong proof — cho hunt H2.
 	cnfJKT, proofJKT string
+	proofStatus      string
 }
 
 // Check được Envoy gọi cho mỗi request. Không bao giờ trả error gRPC cho các ca từ chối:
@@ -96,8 +116,10 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 	)
 	switch d.profile {
 	case ProfileP1:
+		d.proofStatus = proofNotApplicable
 		claims, denied = s.authenticateBearer(ctx, &d, start, hdr)
 	case ProfileP2:
+		d.proofStatus = proofNotChecked // đổi thành valid / replay / … khi tới bước kiểm proof
 		claims, denied = s.authenticateDPoP(ctx, &d, start, h, hdr)
 	default:
 		// Envoy không gắn profile (cấu hình sai) → không đoán, từ chối.
@@ -114,20 +136,27 @@ func (s *Server) Check(ctx context.Context, req *authv3.CheckRequest) (*authv3.C
 		d.reason = "policy_not_configured"
 		return s.deny(d, start, typev3.StatusCode_ServiceUnavailable, "", "temporarily_unavailable"), nil
 	}
+	opaStart := time.Now()
 	dec, err := s.Policy.Decide(ctx, policy.Input{
 		Method: h.GetMethod(),
 		Path:   pathOnly(h.GetPath()),
 		Subject: policy.Subject{
 			Sub: claims.Subject, ClientID: claims.ClientID,
-			Roles: claims.Roles, Dept: claims.Dept, Tier: claims.Tier,
+			// Sắp xếp role (tuần 8): policy chỉ hỏi "role có thuộc tập cho phép không" nên thứ tự
+			// không đổi quyết định, nhưng decision log của OPA ghi lại input này — thứ tự cố định
+			// thì trường subject_roles trong SIEM so sánh được theo thời gian (hunt H4).
+			Roles: sortedCopy(claims.Roles), Dept: claims.Dept, Tier: claims.Tier,
 		},
 	})
+	// Ghi cả khi lỗi: OPA treo thì con số này xấp xỉ OPA_TIMEOUT — bằng chứng cho failure injection.
+	d.policyEvalUS = time.Since(opaStart).Microseconds()
 	if err != nil {
 		// SR-11: OPA sập / timeout / trả bậy → TỪ CHỐI. 503 vì lỗi nằm ở phía server.
 		d.reason = policyErrorReason(err)
 		return s.deny(d, start, typev3.StatusCode_ServiceUnavailable, "", "temporarily_unavailable"), nil
 	}
 	d.policyID, d.policyVersion, d.policyRoute, d.opaDecisionID = dec.PolicyID, dec.PolicyVersion, dec.Route, dec.DecisionID
+	d.routeTemplate = dec.RouteTemplate
 	if !dec.Allow {
 		// Token hợp lệ nhưng không đủ quyền → 403. Lý do (role_not_allowed, abac_dept…) chỉ ở log.
 		d.reason = dec.Reason
@@ -207,14 +236,33 @@ func (s *Server) authenticateDPoP(ctx context.Context, d *decision, start time.T
 		if errors.As(err, &e) {
 			d.reason, d.proofJKT = string(e.Reason), e.ProofJKT
 		}
+		d.proofStatus = proofStatusFor(d.reason)
 		if d.reason == string(dpop.ReasonCacheFull) {
 			// Trần bộ nhớ chống replay đã chạm (T10): từ chối, không xoá mục còn hạn.
 			return nil, s.deny(*d, start, typev3.StatusCode_ServiceUnavailable, "", "temporarily_unavailable")
 		}
 		return nil, s.deny(*d, start, typev3.StatusCode_Unauthorized, challenge+`, error="invalid_dpop_proof"`, "invalid_dpop_proof")
 	}
-	d.proofJKT = res.JKT
+	d.proofJKT, d.proofStatus = res.JKT, proofValid
 	return claims, nil
+}
+
+// proofStatusFor đổi mã lý do của bộ kiểm DPoP thành giá trị proof_status. Ba ca có tên riêng
+// vì hunt lọc thẳng theo chúng (H1: replay, H2: key_mismatch); mọi lỗi khác là "invalid".
+func proofStatusFor(reason string) string {
+	switch dpop.Reason(reason) {
+	case dpop.ReasonMissing:
+		return proofMissing
+	case dpop.ReasonReplay:
+		return proofReplay
+	case dpop.ReasonKeyMismatch:
+		return proofKeyMismatch
+	case dpop.ReasonCacheFull:
+		// Proof đúng chữ ký nhưng không ghi được jti nên không khẳng định được "chưa dùng".
+		return proofNotChecked
+	default:
+		return proofInvalid
+	}
 }
 
 // verifyToken kiểm access token bằng verifier của profile; lỗi thì trả DeniedResponse.
@@ -234,7 +282,34 @@ func (s *Server) verifyToken(ctx context.Context, d *decision, start time.Time, 
 		return nil, s.deny(*d, start, typev3.StatusCode_Unauthorized, challenge+`, error="invalid_token"`, "invalid_token")
 	}
 	d.principal, d.clientID, d.alg, d.kid = claims.Subject, claims.ClientID, claims.Alg, claims.Kid
+	d.tokenType, d.iss = tokenTypeLabel(claims.Type), clip(claims.Issuer, 128)
+	d.aud, d.scopeSet = audienceLabel(claims.Audience), clip(strings.Join(claims.Scopes, " "), 256)
 	return claims, nil
+}
+
+// tokenTypeLabel đổi claim typ của access token thành giá trị trường token_type
+// (đề bài mục 13.1: bearer / DPoP). Loại khác → rỗng.
+func tokenTypeLabel(typ string) string {
+	switch {
+	case strings.EqualFold(typ, "Bearer"):
+		return "bearer"
+	case strings.EqualFold(typ, "DPoP"):
+		return "DPoP"
+	}
+	return ""
+}
+
+// sortedCopy trả bản sao đã sắp xếp; không đụng tới slice gốc (claims còn được dùng tiếp).
+func sortedCopy(in []string) []string {
+	out := slices.Clone(in)
+	slices.Sort(out)
+	return out
+}
+
+// audienceLabel nối các audience của token đã kiểm theo thứ tự cố định. Vector băm chuỗi này
+// thành aud_hash rồi xoá, nên cùng một tập audience phải luôn cho cùng một chuỗi.
+func audienceLabel(aud []string) string {
+	return clip(strings.Join(sortedCopy(aud), " "), 256)
 }
 
 // requestURL dựng URI của request để so với htu: scheme + authority + path, không query.
@@ -275,9 +350,13 @@ func (s *Server) deny(d decision, start time.Time, code typev3.StatusCode, wwwAu
 	}
 }
 
-// log ghi một dòng JSON cho mỗi quyết định. SR-10: không ghi token, header, path thật hay
-// query string; route ghi theo nhóm (/orders, /profile). principal là sub — tuần 8 Vector
-// sẽ băm HMAC trước khi vào SIEM.
+// log ghi một dòng JSON cho mỗi quyết định. Tên trường theo telemetry/schema.json (tuần 8):
+// trường nào ở đây cũng có trong schema, trừ hai giá trị thô mà Vector băm HMAC rồi xoá trước
+// khi vào SIEM — principal (→ principal_hash) và aud (→ aud_hash).
+//
+// SR-10: không ghi token, header, path thật hay query string; route ghi theo nhóm (/orders,
+// /profile) và theo mẫu của policy (/orders/{id}). Trường không biết thì để rỗng — luôn đủ
+// bộ khoá, để SIEM không phải đoán "thiếu trường" nghĩa là gì.
 func (s *Server) log(d decision, start time.Time) {
 	result := "deny"
 	if d.allow {
@@ -289,18 +368,25 @@ func (s *Server) log(d decision, start time.Time) {
 		"profile", d.profile,
 		"method", d.method,
 		"route_group", d.route,
+		"route_template", d.routeTemplate,
 		"decision", result,
-		"reason", d.reason,
+		"decision_reason", d.reason,
 		"principal", d.principal,
 		"client_id", d.clientID,
-		"token_alg", d.alg,
-		"token_kid", d.kid,
+		"token_type", d.tokenType,
+		"alg", d.alg,
+		"kid", d.kid,
+		"iss", d.iss,
+		"aud", d.aud,
+		"scope_set", d.scopeSet,
+		"proof_status", d.proofStatus,
+		"cnf_jkt", d.cnfJKT,
+		"proof_jkt", d.proofJKT,
 		"policy_id", d.policyID,
 		"policy_version", d.policyVersion,
 		"policy_route", d.policyRoute,
 		"opa_decision_id", d.opaDecisionID,
-		"cnf_jkt", d.cnfJKT,
-		"proof_jkt", d.proofJKT,
+		"policy_eval_us", d.policyEvalUS,
 		"duration_ms", float64(time.Since(start).Microseconds())/1000,
 	)
 }

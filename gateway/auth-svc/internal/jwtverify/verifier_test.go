@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -205,6 +206,51 @@ func TestVerifyBearerTokenHasNoCnf(t *testing.T) {
 	c, err := newVerifier(t, []string{"RS256"}, realmJWKS()).Verify(context.Background(), makeToken(hdrRS256(), goodClaims(), rs256(realmRSA)))
 	if err != nil || c.CnfJKT != "" {
 		t.Fatalf("token bearer không có cnf: %+v %v", c, err)
+	}
+}
+
+// Tuần 8: claim scope được chuẩn hoá cho telemetry (scope_set). Hai điều phải giữ:
+//   - scope sai kiểu hay chứa ký tự lạ KHÔNG làm token hợp lệ bị từ chối (telemetry không được
+//     đổi quyết định bảo mật) — chỉ bị bỏ khỏi kết quả;
+//   - giá trị ghi ra có thứ tự cố định, không trùng, có trần — token không nhồi được chuỗi tuỳ ý vào SIEM.
+func TestVerifyNormalizesScopeForTelemetry(t *testing.T) {
+	testKeys(t)
+	v := newVerifier(t, []string{"RS256"}, realmJWKS())
+	many := make([]string, 0, 40)
+	for i := 0; i < 40; i++ {
+		many = append(many, fmt.Sprintf("s%02d", i))
+	}
+	cases := map[string]struct {
+		scope any // nil = không có claim
+		want  string
+	}{
+		"token Keycloak thường":                {"openid profile email", "email openid profile"},
+		"bỏ trùng, gộp khoảng trắng":           {"  openid  email openid\temail ", "email openid"},
+		"không có claim scope":                 {nil, ""},
+		"scope là mảng (sai kiểu) → bỏ qua":    {[]string{"openid", "admin"}, ""},
+		"scope là số (sai kiểu) → bỏ qua":      {42, ""},
+		"scope chứa ký tự lạ bị bỏ từng cái":   {`openid ey"J<script> a,b orders:read`, "openid orders:read"},
+		"scope dài hơn 64 ký tự bị bỏ":         {"openid " + strings.Repeat("x", 65), "openid"},
+		"nhiều hơn 16 scope thì chỉ giữ 16":    {strings.Join(many, " "), strings.Join(many[:16], " ")},
+		"chuỗi rỗng":                           {"", ""},
+		"URI làm scope (RFC 6749 cho phép)":    {"https://api.example/read openid", "https://api.example/read openid"},
+		"scope null":                           {json.RawMessage("null"), ""},
+		"object lồng nhau (sai kiểu) → bỏ qua": {map[string]any{"a": "openid"}, ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			claims := goodClaims()
+			if c.scope != nil {
+				claims["scope"] = c.scope
+			}
+			got, err := v.Verify(context.Background(), makeToken(hdrRS256(), claims, rs256(realmRSA)))
+			if err != nil {
+				t.Fatalf("claim scope không được làm token hợp lệ bị từ chối: %v", err)
+			}
+			if s := strings.Join(got.Scopes, " "); s != c.want {
+				t.Fatalf("Scopes = %q, muốn %q", s, c.want)
+			}
+		})
 	}
 }
 

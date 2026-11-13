@@ -57,6 +57,46 @@ func TestDecideParsesDeny(t *testing.T) {
 	}
 }
 
+// Tuần 8: route_template là trường telemetry. Có thì đọc; thiếu (bản policy cũ) thì quyết định
+// vẫn dùng được; sai dạng thì bỏ — không bao giờ để chuỗi lạ từ PDP đi thẳng vào log.
+func TestDecideRouteTemplateIsOptionalAndSanitized(t *testing.T) {
+	cases := map[string]struct {
+		field string // phần JSON chèn vào result, rỗng = không có trường
+		want  string
+	}{
+		"có đường dẫn mẫu":                 {`,"route_template":"/orders/{id}"`, "/orders/{id}"},
+		"không có trường (policy 1.0.0)":   {``, ""},
+		"null":                             {`,"route_template":null`, ""},
+		"rỗng (không khớp route nào)":      {`,"route_template":""`, ""},
+		"không bắt đầu bằng /":             {`,"route_template":"orders/{id}"`, ""},
+		"có query string":                  {`,"route_template":"/orders?code=abc"`, ""},
+		"có khoảng trắng / xuống dòng":     {`,"route_template":"/orders\n{\"x\":1}"`, ""},
+		"dài hơn 64 ký tự":                 {`,"route_template":"/` + strings.Repeat("a", 64) + `"`, ""},
+		"sai kiểu (số) → cả response hỏng": {`,"route_template":7`, "ERR"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			c := newTestClient(t, func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"result":{"allow":true,"policy_id":"topic09.authz","policy_version":"1.1.0","route":"orders.read","reason":"ok"` + tc.field + `},"decision_id":"d-1"}`))
+			})
+			d, err := c.Decide(context.Background(), aliceInput)
+			if tc.want == "ERR" {
+				// JSON sai kiểu là response không hợp lệ → lỗi → Server từ chối (SR-11), không đoán.
+				if !errors.Is(err, ErrBadResponse) || d.Allow {
+					t.Fatalf("muốn ErrBadResponse, nhận %+v err=%v", d, err)
+				}
+				return
+			}
+			if err != nil || !d.Allow {
+				t.Fatalf("quyết định phải dùng được: %+v err=%v", d, err)
+			}
+			if d.RouteTemplate != tc.want {
+				t.Fatalf("RouteTemplate = %q, muốn %q", d.RouteTemplate, tc.want)
+			}
+		})
+	}
+}
+
 // Thiếu thuộc tính ABAC → bỏ khỏi JSON (để policy coi là "thiếu"), roles nil → [].
 func TestDecideOmitsEmptyAttributesAndSendsEmptyRoles(t *testing.T) {
 	var raw []byte
