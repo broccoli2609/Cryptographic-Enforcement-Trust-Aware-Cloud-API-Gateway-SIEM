@@ -2,9 +2,11 @@ package service
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -101,6 +103,65 @@ func TestLogsNeverContainTokens(t *testing.T) {
 	// Route không kiểm đối tượng vẫn có trường backend_object_authz (giá trị cố định) — schema ổn định cho SIEM.
 	if !strings.Contains(out, `"backend_object_authz":"not_applicable"`) {
 		t.Fatalf("log phải có backend_object_authz, nhận được:\n%s", out)
+	}
+}
+
+// Tuần 8: route_template chỉ là đường dẫn mẫu; method nằm ở trường riêng (telemetry/schema.json).
+func TestLogRouteTemplateHasNoMethod(t *testing.T) {
+	var logs bytes.Buffer
+	req := httptest.NewRequest(http.MethodGet, "/orders/whoami", nil)
+	req.Header.Set("X-User", "sub-1")
+	newTestHandler(&logs).ServeHTTP(httptest.NewRecorder(), req)
+	out := logs.String()
+	for _, want := range []string{`"route_template":"/orders/whoami"`, `"method":"GET"`} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("log thiếu %s:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, `"route_template":"GET `) {
+		t.Fatalf("route_template còn dính method:\n%s", out)
+	}
+}
+
+func TestRouteTemplate(t *testing.T) {
+	for in, want := range map[string]string{
+		"GET /orders/{id}": "/orders/{id}", "PATCH /profile/{id}": "/profile/{id}",
+		"GET /healthz": "/healthz", "/": "/", "": "",
+	} {
+		if got := routeTemplate(in); got != want {
+			t.Errorf("routeTemplate(%q) = %q, muốn %q", in, got, want)
+		}
+	}
+}
+
+// Mọi khoá của dòng log request phải có trong telemetry/schema.json (hoặc là khoá thô mà
+// Vector đổi/bỏ) — backend không tự ý thêm trường mà SIEM không biết.
+func TestRequestLogKeysAreInTelemetrySchema(t *testing.T) {
+	raw, err := os.ReadFile("../../../telemetry/schema.json") // workloads/internal/service → gốc repo
+	if err != nil {
+		t.Fatalf("không đọc được schema (test phải chạy trong repo): %v", err)
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil || len(schema.Properties) == 0 {
+		t.Fatalf("schema hỏng: %v", err)
+	}
+	var logs bytes.Buffer
+	h := newTestHandler(&logs)
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/orders/whoami", nil)) // deny: missing_identity
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/nowhere", nil))       // 404
+	rawOnly := []string{"time", "level", "msg", "service"}
+	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("dòng log không phải JSON: %v\n%s", err, line)
+		}
+		for k := range m {
+			if _, ok := schema.Properties[k]; !ok && !slices.Contains(rawOnly, k) {
+				t.Errorf("khoá %q không có trong telemetry/schema.json:\n%s", k, line)
+			}
+		}
 	}
 }
 

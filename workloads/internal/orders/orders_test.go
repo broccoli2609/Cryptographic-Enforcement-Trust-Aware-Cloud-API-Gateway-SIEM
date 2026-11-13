@@ -139,8 +139,9 @@ func TestOwnerReadsOwnOrder(t *testing.T) {
 		t.Fatalf("alice GET o1 = %d %s", rr.Code, rr.Body)
 	}
 	wantAuthz(t, log, "allow", "owner")
-	if log["route_template"] != "GET /orders/{id}" {
-		t.Fatalf("route_template = %v", log["route_template"])
+	// Tuần 8: route_template là đường dẫn mẫu (không kèm method, không có ID thật "o1").
+	if log["route_template"] != "/orders/{id}" || log["method"] != "GET" {
+		t.Fatalf("route_template = %v, method = %v", log["route_template"], log["method"])
 	}
 }
 

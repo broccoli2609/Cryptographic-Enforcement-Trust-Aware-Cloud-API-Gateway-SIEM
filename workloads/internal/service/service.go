@@ -227,6 +227,10 @@ func (s *statusRecorder) WriteHeader(code int) {
 //
 // Tuần 7 thêm 3 trường: backend_object_authz (allow/deny/not_applicable), backend_authz_reason,
 // backend_redacted_fields — bằng chứng "gateway cho qua, backend chặn" (BOLA) và property-level.
+//
+// Tuần 8: tên trường theo telemetry/schema.json — mọi khoá ở đây đều có trong schema (trừ
+// service/msg/time/level mà Vector đổi thành source/event_type hoặc bỏ). route_template chỉ còn
+// đường dẫn mẫu ("/orders/{id}"), method nằm ở trường method.
 func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -242,7 +246,7 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 			"event_time", start.UTC().Format(time.RFC3339Nano),
 			"request_id", requestID(r),
 			"method", r.Method,
-			"route_template", r.Pattern,
+			"route_template", routeTemplate(r.Pattern),
 			"status_code", rec.status,
 			"backend_object_authz", object,
 			"backend_authz_reason", note.reason,
@@ -250,6 +254,16 @@ func logRequests(logger *slog.Logger, next http.Handler) http.Handler {
 			"duration_ms", float64(time.Since(start).Microseconds())/1000,
 		)
 	})
+}
+
+// routeTemplate bỏ method khỏi mẫu của http.ServeMux: "GET /orders/{id}" → "/orders/{id}".
+// Mẫu không có method (route bắt-tất-cả "/") giữ nguyên. Kết quả luôn là mẫu đã đăng ký trong
+// code, không bao giờ là đường dẫn client gửi.
+func routeTemplate(pattern string) string {
+	if _, path, ok := strings.Cut(pattern, " "); ok {
+		return path
+	}
+	return pattern
 }
 
 // requestID lấy X-Request-Id do Envoy gắn (từ tuần 4), cắt tối đa 64 ký tự

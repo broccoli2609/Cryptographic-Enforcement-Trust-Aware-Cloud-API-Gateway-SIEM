@@ -66,8 +66,9 @@ static_resources:
                 path_with_escaped_slashes_action: REJECT_REQUEST
                 access_log: &access_log
                   # SR-10: không ghi đường dẫn thật (có ID đơn hàng), không ghi header/token.
-                  # Route ghi theo tên route — tương đương r.Pattern của backend.
-                  # listener_port: 8443 = P1, 8444 = P0.
+                  # Tên trường theo telemetry/schema.json (tuần 8). Vector đọc các dòng này từ
+                  # stdout, băm principal thành principal_hash, suy profile từ listener_port
+                  # (8443 = p1, 8444 = p0, 8445 = p2) và bỏ client_ip trước khi vào SIEM.
                   - name: envoy.access_loggers.stdout
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
@@ -78,13 +79,24 @@ static_resources:
                           request_id: "%REQ(X-REQUEST-ID)%"
                           listener_port: "%DOWNSTREAM_LOCAL_PORT%"
                           method: "%REQ(:METHOD)%"
-                          route_name: "%ROUTE_NAME%"
+                          # Tên route đặt bằng đúng tiền tố ("/orders", "/profile") nên in ra là
+                          # nhóm route; request không khớp route nào thì trường này trống.
+                          route_group: "%ROUTE_NAME%"
                           status_code: "%RESPONSE_CODE%"
                           response_flags: "%RESPONSE_FLAGS%"
                           response_code_details: "%RESPONSE_CODE_DETAILS%"
                           upstream_cluster: "%UPSTREAM_CLUSTER%"
                           duration_ms: "%DURATION%"
                           tls_version: "%DOWNSTREAM_TLS_VERSION%"
+                          tls_cipher: "%DOWNSTREAM_TLS_CIPHER%"
+                          # SHA-256 chứng chỉ client. Lab không dùng mTLS phía client (track B
+                          # ngoài phạm vi) nên luôn trống — giữ để khớp mục 13.1 đề bài.
+                          tls_peer_fingerprint: "%DOWNSTREAM_PEER_FINGERPRINT_256%"
+                          # sub và azp của token ĐÃ ĐƯỢC jwt_authn KIỂM chữ ký (payload_in_metadata
+                          # bên dưới); token hỏng hay không có token thì hai trường này trống.
+                          # Nhờ vậy request ở P0 — không đi qua auth-svc — vẫn có danh tính trong SIEM.
+                          principal: "%DYNAMIC_METADATA(envoy.filters.http.jwt_authn:jwt_payload:sub)%"
+                          client_id: "%DYNAMIC_METADATA(envoy.filters.http.jwt_authn:jwt_payload:azp)%"
                           client_ip: "%DOWNSTREAM_REMOTE_ADDRESS_WITHOUT_PORT%"
                 route_config:
                   name: api_routes_p1
@@ -94,10 +106,11 @@ static_resources:
                       # P2 cũng dựa vào điều này: htu trong DPoP proof được so với Host đã qua bộ lọc này.
                       domains: ["localhost:8443", "127.0.0.1:8443"]
                       routes: &api_route_list
-                        - name: orders
+                        # name = nhóm route, in ra trường route_group của access log.
+                        - name: /orders
                           match: { path_separated_prefix: /orders }   # /orders và /orders/..., không khớp /ordersX
                           route: { cluster: orders_api, timeout: 5s }
-                        - name: profile
+                        - name: /profile
                           match: { path_separated_prefix: /profile }
                           route: { cluster: profile_api, timeout: 5s }
                       # Đường dẫn khác: Envoy trả 404, không chuyển vào backend nào.
@@ -141,6 +154,10 @@ static_resources:
                               retry_back_off: { base_interval: 0.5s, max_interval: 5s }
                           clock_skew_seconds: 30
                           forward: true
+                          # Đưa payload của token đã kiểm vào dynamic metadata để access log đọc
+                          # được sub và azp (tuần 8). Chỉ có sau khi chữ ký + iss + aud + exp đều
+                          # qua; không gửi sang auth-svc, không gửi vào backend.
+                          payload_in_metadata: jwt_payload
                       rules:
                         - match: { prefix: / }
                           requires: { provider_name: keycloak }
@@ -208,6 +225,7 @@ static_resources:
                           remote_jwks: *remote_jwks
                           clock_skew_seconds: 30
                           forward: false           # xoá Authorization sau khi kiểm: backend không thấy token
+                          payload_in_metadata: jwt_payload   # sub, azp cho access log (như P1)
                           claim_to_headers:
                             - header_name: x-user  # danh tính đã kiểm = claim sub
                               claim_name: sub
@@ -272,6 +290,7 @@ static_resources:
                             - name: authorization
                               value_prefix: "DPoP "
                           forward: true            # auth-svc cần token để tính ath; auth-svc xoá trước backend
+                          payload_in_metadata: jwt_payload   # sub, azp cho access log (như P1)
                       rules:
                         - match: { prefix: / }
                           requires: { provider_name: keycloak }

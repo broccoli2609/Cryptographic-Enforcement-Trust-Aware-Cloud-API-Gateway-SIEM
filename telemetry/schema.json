@@ -1,0 +1,416 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:topic09:telemetry:event",
+  "title": "Topic 09 — Cloud Gateway Security Telemetry event",
+  "description": "Một sự kiện bảo mật SAU KHI qua Vector, tức là thứ nằm trong SIEM (OpenSearch) và trong dataset. 27 trường đầu (x-core = 1..27) là danh sách ở mục 13.1 của đề bài, giữ nguyên tên. Các trường còn lại là phần mở rộng của lab. Schema là allow-list: additionalProperties = false, nên trường không khai báo ở đây không được vào SIEM (SR-10). Mỗi nguồn chỉ điền những trường nó biết; trường không biết là null. Nối các sự kiện của cùng một request bằng request_id (OPA: bằng opa_decision_id).",
+  "x-schema-version": "1.0.0",
+  "x-raw-only": {
+    "description": "Trường chỉ có trong log thô của service (docker logs), Vector biến đổi hoặc bỏ trước khi vào SIEM.",
+    "fields": {
+      "principal": "sub của token đã kiểm → principal_hash = HMAC-SHA256(khoá trong .env, sub), rồi xoá",
+      "aud": "aud của token đã kiểm → aud_hash, rồi xoá",
+      "service": "→ source",
+      "msg": "→ event_type",
+      "time": "bỏ (slog tự ghi; event_time mới là thời điểm của sự kiện)",
+      "level": "bỏ",
+      "client_ip": "bỏ (trong lab luôn là IP của bridge Docker, không có giá trị hunt)"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_time", "source", "event_type"],
+  "properties": {
+    "event_time": {
+      "x-core": 1,
+      "x-sources": ["envoy", "auth-svc", "opa", "orders-api", "profile-api", "keycloak"],
+      "x-status": "week8",
+      "description": "Thời điểm sự kiện, UTC, RFC 3339 (đuôi Z). Do nguồn ghi lúc bắt đầu xử lý request, không phải lúc Vector nhận.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?Z$"
+    },
+    "request_id": {
+      "x-core": 2,
+      "x-sources": ["envoy", "auth-svc", "orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Mã nối các sự kiện của cùng một request: UUID do Envoy sinh (không nhận X-Request-Id của client). Chỉ gồm chữ số hex và dấu gạch — giá trị khác dạng bị Vector đổi thành null (request không đi qua gateway). Sự kiện của OPA không có request_id, nối bằng opa_decision_id.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-fA-F-]{1,64}$"
+    },
+    "principal_hash": {
+      "x-core": 3,
+      "x-sources": ["envoy", "auth-svc", "opa", "keycloak"],
+      "x-status": "week8",
+      "description": "Định danh người dùng đã giả danh: HMAC-SHA256(SIEM_HMAC_KEY, sub), 64 ký tự hex. Không dùng hash trần — sub là UUID, hash trần đoán ngược được bằng cách băm thử danh sách user. null khi chưa có danh tính đã kiểm (token hỏng, không token). Backend không ghi danh tính: nối với auth-svc/Envoy bằng request_id.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "client_id": {
+      "x-core": 4,
+      "x-sources": ["envoy", "auth-svc", "opa", "keycloak"],
+      "x-status": "week8",
+      "description": "Client OAuth đã đăng ký (claim azp của token đã kiểm): web-app, web-app-dpop, batch-worker.",
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "workload_id": {
+      "x-core": 5,
+      "x-sources": [],
+      "x-status": "out_of_scope",
+      "description": "SPIFFE/service identity. Luôn null: track B (workload identity, mTLS east-west) ngoài phạm vi đồ án. Giữ cột để dataset khớp mục 13.1 đề bài.",
+      "type": "null"
+    },
+    "authn_method": {
+      "x-core": 6,
+      "x-sources": ["auth-svc", "envoy", "opa", "keycloak"],
+      "x-status": "week8",
+      "description": "Cách client lấy được token. Suy ra từ client_id theo cấu hình realm (mỗi client chỉ bật một luồng): web-app, web-app-dpop → pkce; batch-worker → private_key_jwt (client credentials + client assertion ES256). Đây là giá trị SUY RA ở Vector, không phải gateway quan sát được; bên quan sát trực tiếp là Keycloak — xem idp_event, grant_type.",
+      "type": ["string", "null"],
+      "enum": ["pkce", "private_key_jwt", "client_credentials", "mTLS", null]
+    },
+    "token_type": {
+      "x-core": 7,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Loại access token ĐÃ KIỂM: bearer (claim typ = Bearer) hoặc DPoP (typ = DPoP, có cnf.jkt). null khi token không qua được bước kiểm.",
+      "type": ["string", "null"],
+      "enum": ["bearer", "DPoP", null]
+    },
+    "alg": {
+      "x-core": 8,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "alg trong JOSE header của access token (cắt 16 ký tự). Có cả khi token bị từ chối — hunt H3 cần thấy alg lạ (none, HS256…).",
+      "type": ["string", "null"],
+      "maxLength": 16
+    },
+    "kid": {
+      "x-core": 9,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "kid trong JOSE header (cắt 64 ký tự) = phiên bản khoá ký của realm. Có cả khi token bị từ chối (H3: kid lạ).",
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "iss": {
+      "x-core": 10,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Issuer của token đã kiểm (bằng đúng OIDC_ISSUER ghi cứng trong gateway). null khi token không qua được bước kiểm.",
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "aud_hash": {
+      "x-core": 11,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Nhóm tài nguyên đã giả danh: HMAC-SHA256(SIEM_HMAC_KEY, aud đã kiểm, sắp xếp, nối bằng dấu cách). 64 ký tự hex.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "scope_set": {
+      "x-core": 12,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Scope của token đã kiểm, chuẩn hoá: bỏ trùng, sắp xếp, nối bằng dấu cách (ví dụ \"email openid profile\"). Lab phân quyền bằng role nên scope chỉ để quan sát.",
+      "type": ["string", "null"],
+      "maxLength": 256
+    },
+    "proof_status": {
+      "x-core": 13,
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Kết quả kiểm sender-binding (DPoP proof). not_applicable: profile không dùng DPoP (P1). not_checked: P2 nhưng bị từ chối trước bước kiểm proof. valid: proof hợp lệ. missing: không có header DPoP. replay: jti đã dùng (H1). key_mismatch: khoá trong proof khác cnf.jkt của token (H2). invalid: mọi lỗi proof khác — chi tiết ở decision_reason.",
+      "type": ["string", "null"],
+      "enum": ["valid", "invalid", "replay", "key_mismatch", "missing", "not_checked", "not_applicable", null]
+    },
+    "policy_id": {
+      "x-core": 14,
+      "x-sources": ["auth-svc", "opa"],
+      "x-status": "week8",
+      "description": "Policy của PDP đã ra quyết định (topic09.authz).",
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "policy_version": {
+      "x-core": 15,
+      "x-sources": ["auth-svc", "opa"],
+      "x-status": "week8",
+      "description": "Phiên bản policy lúc ra quyết định. H4 dùng trường này để thấy deny → allow sau khi đổi policy.",
+      "type": ["string", "null"],
+      "maxLength": 32
+    },
+    "decision": {
+      "x-core": 16,
+      "x-sources": ["envoy", "auth-svc", "opa", "keycloak"],
+      "x-status": "week8",
+      "description": "Quyết định của gateway/PDP/IdP: allow | deny. Envoy: deny khi jwt_authn hoặc ext_authz chặn, allow khi đã chuyển vào backend (via_upstream), null cho các ca khác (không có route…). Keycloak: deny khi sự kiện là *_ERROR. Quyết định của backend nằm ở backend_object_authz.",
+      "type": ["string", "null"],
+      "enum": ["allow", "deny", null]
+    },
+    "decision_reason": {
+      "x-core": 17,
+      "x-sources": ["envoy", "auth-svc", "opa", "keycloak"],
+      "x-status": "week8",
+      "description": "Mã lý do cố định (không phải câu chữ tự do): ok, expired, alg_not_allowed, wrong_aud, dpop_replay, role_not_allowed, abac_dept, policy_unavailable… Envoy: response_code_details.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_.{}\\[\\],:=/-]{1,128}$"
+    },
+    "route_template": {
+      "x-core": 18,
+      "x-sources": ["auth-svc", "opa", "orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Route theo mẫu, ví dụ /orders/{id} — không bao giờ là đường dẫn thật (ID đối tượng không vào SIEM). auth-svc/OPA: mẫu của route khớp trong bảng route của policy. Backend: mẫu của router (r.Pattern, đã bỏ method). null khi không khớp route nào hoặc bị từ chối trước khi hỏi OPA — khi đó xem route_group.",
+      "type": ["string", "null"],
+      "pattern": "^/[A-Za-z0-9/_{}.-]{0,63}$"
+    },
+    "backend_object_authz": {
+      "x-core": 19,
+      "x-sources": ["orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Quyết định mức đối tượng của BACKEND: allow | deny | not_applicable (route không kiểm đối tượng; đề bài gọi là not-evaluated). Bằng chứng BOLA: decision = allow ở auth-svc và backend_object_authz = deny ở backend, cùng request_id.",
+      "type": ["string", "null"],
+      "enum": ["allow", "deny", "not_applicable", null]
+    },
+    "status_code": {
+      "x-core": 20,
+      "x-sources": ["envoy", "orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Mã HTTP. Envoy: mã client nhận được. Backend: mã backend trả.",
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "maximum": 599
+    },
+    "gateway_cycles": {
+      "x-core": 21,
+      "x-sources": [],
+      "x-status": "week11",
+      "description": "Mẫu số chu kỳ CPU của gateway (perf). null cho tới tuần 11; đo theo lô, không theo từng request.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "crypto_verify_cycles": {
+      "x-core": 22,
+      "x-sources": [],
+      "x-status": "week11",
+      "description": "Chu kỳ CPU của riêng bước kiểm chữ ký (microbenchmark tuần 11). null cho tới khi đo.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "policy_eval_us": {
+      "x-core": 23,
+      "x-sources": ["auth-svc", "opa"],
+      "x-status": "week8",
+      "description": "Độ trễ PDP, micro giây. auth-svc: thời gian khứ hồi của lần gọi OPA (cái gateway thực sự phải chờ). opa: thời gian OPA tự đo cho việc đánh giá (metrics.timer_rego_query_eval_ns / 1000).",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "kms_calls": {
+      "x-core": 24,
+      "x-sources": [],
+      "x-status": "week9",
+      "description": "Số lần gọi KMS (Vault Transit) gắn với sự kiện. null cho tới tuần 9 (digester ký digest).",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "tls_peer_fingerprint": {
+      "x-core": 25,
+      "x-sources": ["envoy"],
+      "x-status": "out_of_scope",
+      "description": "SHA-256 của chứng chỉ client (chỉ fingerprint, không phải chứng chỉ). Luôn null: lab không dùng mTLS phía client (track B); sender-binding làm bằng DPoP — xem cnf_jkt, proof_jkt.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "attack_label": {
+      "x-core": 26,
+      "x-sources": [],
+      "x-status": "week10",
+      "description": "Nhãn kịch bản: benign, replay, wrong-aud, BOLA… Do bộ sinh kịch bản tuần 10 gắn; null cho tới lúc đó.",
+      "type": ["string", "null"],
+      "maxLength": 32
+    },
+    "attack_id": {
+      "x-core": 27,
+      "x-sources": [],
+      "x-status": "week10",
+      "description": "Mã kịch bản trong lab (S0…S11). null cho tới tuần 10.",
+      "type": ["string", "null"],
+      "maxLength": 32
+    },
+
+    "source": {
+      "x-sources": ["vector"],
+      "x-status": "week8",
+      "description": "Thành phần sinh sự kiện (tên service trong docker compose).",
+      "type": "string",
+      "enum": ["envoy", "auth-svc", "opa", "orders-api", "profile-api", "keycloak"]
+    },
+    "event_type": {
+      "x-sources": ["vector"],
+      "x-status": "week8",
+      "description": "Loại sự kiện: gateway_access (Envoy, mỗi request một dòng), authz_decision (auth-svc), policy_decision (OPA decision log), backend_request (orders-api, profile-api), idp_event (Keycloak).",
+      "type": "string",
+      "enum": ["gateway_access", "authz_decision", "policy_decision", "backend_request", "idp_event"]
+    },
+    "profile": {
+      "x-sources": ["envoy", "auth-svc"],
+      "x-status": "week8",
+      "description": "Profile so sánh: p0 (:8444), p1 (:8443), p2 (:8445). Envoy: suy từ listener_port.",
+      "type": ["string", "null"],
+      "enum": ["p0", "p1", "p2", null]
+    },
+    "method": {
+      "x-sources": ["envoy", "auth-svc", "opa", "orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Method HTTP.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z]{1,16}$"
+    },
+    "route_group": {
+      "x-sources": ["envoy", "auth-svc"],
+      "x-status": "week8",
+      "description": "Nhóm route thô theo tiền tố: /orders | /profile | other. Luôn có, kể cả khi request bị chặn trước khi biết route_template.",
+      "type": ["string", "null"],
+      "enum": ["/orders", "/profile", "other", null]
+    },
+    "policy_route": {
+      "x-sources": ["auth-svc", "opa"],
+      "x-status": "week8",
+      "description": "Mã route trong bảng route của policy, ví dụ orders.read.",
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "opa_decision_id": {
+      "x-sources": ["auth-svc", "opa"],
+      "x-status": "week8",
+      "description": "decision_id do OPA sinh. Có ở cả sự kiện auth-svc lẫn sự kiện OPA → nối hai phía PEP ↔ PDP.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-fA-F-]{1,64}$"
+    },
+    "cnf_jkt": {
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Thumbprint (RFC 7638) của khoá CÔNG KHAI mà access token được gắn vào (claim cnf.jkt). Không phải bí mật.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "proof_jkt": {
+      "x-sources": ["auth-svc"],
+      "x-status": "week8",
+      "description": "Thumbprint của khoá công khai trong DPoP proof. Khác cnf_jkt = token bị dùng bởi người không giữ khoá (H2).",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "duration_ms": {
+      "x-sources": ["envoy", "auth-svc", "orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Thời gian xử lý ở nguồn đó, mili giây (Envoy: cả request; auth-svc: cả quyết định; backend: handler).",
+      "type": ["number", "null"],
+      "minimum": 0
+    },
+    "backend_authz_reason": {
+      "x-sources": ["orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Mã lý do của backend: owner, not_owner, dept_manager, not_found, unknown_field, missing_identity… (H5 đếm not_owner/not_found theo principal).",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_]{1,64}$"
+    },
+    "backend_redacted_fields": {
+      "x-sources": ["orders-api", "profile-api"],
+      "x-status": "week8",
+      "description": "Tên trường backend đã ẩn khỏi response vì người gọi không đủ quyền (property-level), ví dụ salary_band.",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_,]{1,128}$"
+    },
+    "idp_event": {
+      "x-sources": ["keycloak"],
+      "x-status": "week8",
+      "description": "Loại sự kiện của Keycloak (mục 11.1: login result, token issue, client auth): LOGIN, LOGIN_ERROR, CODE_TO_TOKEN, CODE_TO_TOKEN_ERROR, CLIENT_LOGIN, REFRESH_TOKEN… Kết quả nằm ở decision (allow / deny) và decision_reason (mã lỗi của Keycloak).",
+      "type": ["string", "null"],
+      "pattern": "^[A-Z_]{1,48}$"
+    },
+    "idp_realm": {
+      "x-sources": ["keycloak"],
+      "x-status": "week8",
+      "description": "Realm của sự kiện Keycloak: topic09 (người dùng và client của lab) hoặc master (đăng nhập quản trị — liên quan T11).",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_-]{1,32}$"
+    },
+    "grant_type": {
+      "x-sources": ["keycloak"],
+      "x-status": "week8",
+      "description": "Grant OAuth của lần cấp token mà Keycloak ghi nhận: authorization_code, client_credentials, refresh_token.",
+      "type": ["string", "null"],
+      "pattern": "^[a-z_:.-]{1,64}$"
+    },
+    "pipeline_redacted": {
+      "x-sources": ["vector"],
+      "x-status": "week8",
+      "description": "true = Vector đã phải che hoặc bỏ ít nhất một giá trị của sự kiện này vì nó có dạng token/khoá/mã uỷ quyền, hoặc sai dạng cho phép (ví dụ request_id không phải UUID). Sự kiện vẫn được giữ để điều tra: một giá trị dạng token nằm ở chỗ không dành cho nó là dấu hiệu tấn công hoặc lỗi cấu hình (kịch bản S8).",
+      "type": ["boolean", "null"]
+    },
+    "subject_roles": {
+      "x-sources": ["opa"],
+      "x-status": "week8",
+      "description": "Role trong input của PDP, sắp xếp, nối bằng dấu phẩy (\"input category\" ở mục 11.1). H4 dùng để thấy role đổi theo thời gian.",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_,-]{0,256}$"
+    },
+    "subject_dept": {
+      "x-sources": ["opa"],
+      "x-status": "week8",
+      "description": "Thuộc tính ABAC dept trong input của PDP.",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_-]{1,32}$"
+    },
+    "subject_tier": {
+      "x-sources": ["opa"],
+      "x-status": "week8",
+      "description": "Thuộc tính ABAC tier trong input của PDP.",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_-]{1,32}$"
+    },
+    "listener_port": {
+      "x-sources": ["envoy"],
+      "x-status": "week8",
+      "description": "Cổng listener của Envoy đã nhận request (8443, 8444, 8445).",
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 65535
+    },
+    "upstream_cluster": {
+      "x-sources": ["envoy"],
+      "x-status": "week8",
+      "description": "Cluster backend Envoy đã chuyển request tới (orders_api, profile_api). null = request không tới backend.",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_]{1,32}$"
+    },
+    "response_flags": {
+      "x-sources": ["envoy"],
+      "x-status": "week8",
+      "description": "Cờ của Envoy về cách request kết thúc (UAEX = ext_authz chặn, NR = không có route, UF = backend lỗi…).",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9,_-]{1,64}$"
+    },
+    "response_code_details": {
+      "x-sources": ["envoy"],
+      "x-status": "week8",
+      "description": "Chi tiết của Envoy cho mã HTTP (via_upstream, ext_authz_denied, jwt_authn_access_denied{…}).",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_.{}\\[\\],:=/-]{1,128}$"
+    },
+    "tls_version": {
+      "x-sources": ["envoy"],
+      "x-status": "week8",
+      "description": "Phiên bản TLS của kết nối client → gateway (luôn TLSv1.3 theo SR-01).",
+      "type": ["string", "null"],
+      "pattern": "^TLSv[0-9.]{1,4}$"
+    },
+    "tls_cipher": {
+      "x-sources": ["envoy"],
+      "x-status": "week8",
+      "description": "Cipher suite của kết nối client → gateway.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Z0-9_-]{1,64}$"
+    }
+  }
+}
