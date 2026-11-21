@@ -1,0 +1,25 @@
+{
+  "id": "H1",
+  "name": "Token replay — gửi lại token + DPoP proof đã dùng",
+  "threats": ["T1"],
+  "scenarios": ["S3", "S4"],
+  "requirements": ["SR-04"],
+  "pillar": "RC (Secure Communication)",
+  "hypothesis": "Kẻ tấn công bắt được một request P2 (access token + DPoP proof) và gửi lại nguyên văn. Cache jti của auth-svc phải từ chối với proof_status=replay; có replay cho một principal = có người đang dùng lại thông tin bắt được.",
+  "evidence_fields": ["event_type=authz_decision", "proof_status", "decision_reason (dpop_replay, dpop_iat_out_of_window)", "principal_hash", "cnf_jkt", "profile", "route_template", "request_id"],
+  "attack": [
+    {"id": "T1550.001", "name": "Use Alternate Authentication Material: Application Access Token",
+     "evidence": "proof_status=replay ở auth-svc khi gửi lại nguyên request P2 (scripts/dpop-test.sh, chạy trong scripts/hunt-test.sh)"}
+  ],
+  "parts": [
+    {"name": "gửi lại proof đã dùng (P2)", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "authz_decision"}}, {"term": {"proof_status": "replay"}}]}},
+     "group_by": ["principal_hash", "cnf_jkt"], "threshold": 1},
+    {"name": "proof quá hạn (iat ngoài ±30 s) — replay chậm", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "authz_decision"}}, {"term": {"decision_reason": "dpop_iat_out_of_window"}}]}},
+     "group_by": ["principal_hash"], "threshold": 1}
+  ],
+  "false_positives": "Client gửi lại request khi mạng chập chờn mà giữ nguyên proof (sai RFC 9449 §4.2: mỗi request một proof mới). Đồng hồ client lệch > 30 s → dpop_iat_out_of_window.",
+  "limits": "Bearer token ở P0/P1 không có gì để phát hiện replay (có chủ đích — để so sánh P0/P1/P2). Cache jti mất khi auth-svc khởi động lại: proof < 30 s dùng lại được một lần (residual risk tuần 6).",
+  "response": "Logout phiên của principal trong Keycloak; lần theo request_id ở Envoy để tìm thời điểm/nguồn; kiểm TLS phía client."
+}

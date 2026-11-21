@@ -1,0 +1,36 @@
+{
+  "id": "H3",
+  "name": "alg/kid bất thường — token giả, chữ ký sai, kid lạ",
+  "threats": ["T2"],
+  "scenarios": ["S1", "S2"],
+  "requirements": ["SR-02"],
+  "pillar": "RP (Secure Process Logic)",
+  "hypothesis": "Kẻ tấn công thử token tự ký (khoá lạ, kid không có trong JWKS), đổi alg (none/HS256/ES256), sửa payload giữ chữ ký cũ, hoặc header hỏng để dò bộ kiểm JWT. Lớp chặn đầu tiên là jwt_authn của Envoy (response_code_details), lớp thứ hai là auth-svc (decision_reason, alg, kid).",
+  "evidence_fields": ["source=envoy: response_code_details, profile, listener_port", "source=auth-svc: decision_reason (alg_not_allowed, unknown_kid, bad_signature, crit_not_supported), alg, kid"],
+  "attack": [
+    {"id": "T1606", "name": "Forge Web Credentials",
+     "evidence": "token tự ký bằng khoá không có trong JWKS / sửa chữ ký → Envoy jwt_authn_access_denied{Jwks_doesn't_have_key_to_match_kid…} và {Jwt_verification_fails} (gateway-test.sh, chạy trong hunt-test.sh)"}
+  ],
+  "parts": [
+    {"name": "Envoy chặn: chữ ký sai / kid lạ / header hỏng", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"source": "envoy"}}, {"term": {"decision": "deny"}}],
+               "should": [
+                 {"prefix": {"response_code_details": "jwt_authn_access_denied{Jwt_verification_fails"}},
+                 {"prefix": {"response_code_details": "jwt_authn_access_denied{Jwks_doesn't_have_key_to_match_kid"}},
+                 {"prefix": {"response_code_details": "jwt_authn_access_denied{Jwt_header_is_an_invalid_JSON"}},
+                 {"prefix": {"response_code_details": "jwt_authn_access_denied{Jwt_is_not_in_the_form"}}],
+               "minimum_should_match": 1}},
+     "group_by": ["profile", "response_code_details"], "threshold": 1},
+    {"name": "auth-svc chặn: alg / kid / chữ ký / crit", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "authz_decision"}},
+               {"terms": {"decision_reason": ["alg_not_allowed", "unknown_kid", "bad_signature", "crit_not_supported"]}}]}},
+     "group_by": ["decision_reason", "alg", "kid"], "threshold": 1},
+    {"name": "alg khác RS256 trong token ĐÃ tới auth-svc", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "authz_decision"}}, {"exists": {"field": "alg"}}],
+               "must_not": [{"term": {"alg": "RS256"}}]}},
+     "group_by": ["alg", "kid", "decision"], "threshold": 1}
+  ],
+  "false_positives": "Xoay khoá realm: kid mới chưa vào cache JWKS của Envoy (tối đa 5 phút) → vài Jwks_doesn't_have_key… hợp lệ; nhìn kid mới có xuất hiện sau đó với decision=allow không (FI-6, tuần 11). Client gửi token đã hết hạn không nằm trong hunt này.",
+  "limits": "Ở P1, token hỏng bị jwt_authn chặn TRƯỚC auth-svc nên phần auth-svc chỉ có dữ liệu khi token qua được Envoy (ví dụ khoá ES256 thêm vào realm — ý tưởng S2 tuần 10). Sự kiện Envoy không có principal_hash vì token chưa được kiểm.",
+  "response": "Xem nguồn request (thời điểm, profile, cổng); nếu là kid hợp lệ mới thì đồng bộ JWKS; nếu là token giả hàng loạt thì chặn nguồn ở biên."
+}

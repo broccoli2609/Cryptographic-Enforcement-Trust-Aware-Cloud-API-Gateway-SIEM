@@ -1,0 +1,30 @@
+{
+  "id": "H5",
+  "name": "Dò BOLA / BFLA — đọc đối tượng của người khác, gọi chức năng không đủ quyền",
+  "threats": ["T4"],
+  "scenarios": ["S7"],
+  "requirements": ["SR-06"],
+  "pillar": "RP (Secure Process Logic)",
+  "hypothesis": "Người dùng hợp lệ thay ID trong URL để đọc đơn/hồ sơ của người khác (BOLA, OWASP API1:2023): gateway cho qua (đúng route, đúng role) nhưng backend từ chối not_owner / not_found. Nhiều lần trong cửa sổ ngắn = dò ID. Gọi route không đủ role (BFLA, API5:2023) bị PDP chặn role_not_allowed. Gửi trường không được sửa (API3) → forbidden_property / unknown_field.",
+  "evidence_fields": ["source=orders-api|profile-api: backend_authz_reason (not_owner, not_found, forbidden_property, unknown_field), request_id, route_template", "source=envoy: principal_hash, profile, request_id (nối với backend)", "source=opa: decision_reason=role_not_allowed, route_template"],
+  "attack": [],
+  "attack_note": "Không ánh xạ ATT&CK: không có kỹ thuật nào khớp chặt với BOLA/BFLA (lạm dụng logic phân quyền của API bằng tài khoản hợp lệ). Gần nhất là T1190 nhưng lab không có khai thác lỗ hổng phần mềm — theo luật telemetry chỉ ánh xạ khi có bằng chứng thật. Dùng OWASP API Security Top 10 2023: API1 (BOLA), API3 (BOPLA), API5 (BFLA).",
+  "parts": [
+    {"name": "BOLA: ≥ 3 lần backend từ chối đối tượng cùng principal", "kind": "join",
+     "query": {"bool": {"filter": [{"term": {"event_type": "backend_request"}}, {"terms": {"backend_authz_reason": ["not_owner", "not_found"]}}]}},
+     "key": "request_id",
+     "lookup": {"bool": {"filter": [{"term": {"source": "envoy"}}, {"exists": {"field": "principal_hash"}}]}},
+     "group_by": ["principal_hash", "profile"], "threshold": 3},
+    {"name": "BOPLA: sửa thuộc tính không được phép", "kind": "join",
+     "query": {"bool": {"filter": [{"term": {"event_type": "backend_request"}}, {"terms": {"backend_authz_reason": ["forbidden_property", "unknown_field"]}}]}},
+     "key": "request_id",
+     "lookup": {"bool": {"filter": [{"term": {"source": "envoy"}}, {"exists": {"field": "principal_hash"}}]}},
+     "group_by": ["principal_hash"], "threshold": 1},
+    {"name": "BFLA: gọi chức năng không đủ role", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"source": "opa"}}, {"term": {"decision": "deny"}}, {"term": {"decision_reason": "role_not_allowed"}}]}},
+     "group_by": ["principal_hash", "route_template"], "threshold": 2}
+  ],
+  "false_positives": "Link cũ tới đơn đã xoá (not_found) — vài lần lẻ, không thành chuỗi ID liên tiếp. Giao diện gọi trước rồi mới ẩn nút theo quyền (BFLA lẻ tẻ).",
+  "limits": "Backend không ghi principal (dữ liệu tối thiểu qua TB3) nên phải nối qua request_id với Envoy; request gọi thẳng backend (vòng qua gateway, S8) không có sự kiện Envoy để nối. Ngưỡng 3 là chọn cho lab.",
+  "response": "Khoá hoặc hạ quyền tài khoản; kiểm các đối tượng đã trả 200 cho principal đó trong cùng cửa sổ (có lọt không); xem lại luật đối tượng ở backend."
+}
