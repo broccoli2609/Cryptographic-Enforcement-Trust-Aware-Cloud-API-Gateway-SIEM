@@ -279,6 +279,58 @@ services:
     depends_on:
       opensearch-init: { condition: service_completed_successfully }
 
+  # ============================================================ KMS (tuần 9) ============================================================
+  # Vault dev + Transit (quyết định 2026-09-25, 2026-11-13): giữ 2 khoá không export —
+  #   siem-digest (ed25519)      digester ký digest của hash chain SIEM (tài sản #13, M7)
+  #   pii-enc     (aes256-gcm96) profile-api mã hoá salary_band từ tuần 10 (tài sản #20, M9)
+  # Dev = dữ liệu trong RAM: restart là mất khoá → vault-init dựng lại; digest luôn ghi kèm public
+  # key + version (luật telemetry). REST API của Vault cần token, và Vault chỉ ở mạng "kms"
+  # (internal) — không "ports", không ai ngoài digester/vault-init (tuần 10: profile-api) gọi được.
+  vault:
+    image: hashicorp/vault:2.1.2                 # ghim phiên bản (quyết định 2026-11-21)
+    # Bỏ entrypoint gốc của image: nó chạy setcap/su-exec (cần capability). kms/vault-dev.sh đọc
+    # root token từ Docker secret rồi exec "vault server -dev".
+    entrypoint: ["/bin/sh", "/kms/vault-dev.sh"]
+    user: vault                                  # uid 100, không phải root
+    environment:
+      VAULT_API_ADDR: http://vault:8200
+      SKIP_SETCAP: "true"
+    secrets: [vault_root_token]
+    volumes:
+      - ./kms:/kms:ro
+      # Audit log (file JSON, mọi giá trị bí mật đã bị Vault HMAC) → Vector đọc → SIEM (F5, SR-08).
+      # Khởi tạo từ thư mục /vault/logs của image nên thuộc user vault.
+      - vault-audit:/vault/logs
+    networks: [kms]                              # KHÔNG có "ports"
+    read_only: true
+    cap_drop: [ALL]                              # dev mode tắt mlock nên không cần IPC_LOCK
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      # /v1/sys/health trả 200 khi đã init, đã unseal, đang active.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8200/v1/sys/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
+
+  # Chạy một lần rồi thoát (như opensearch-init): audit device, Transit, 2 khoá, 2 policy, 2 token
+  # app (ID lấy từ secrets/vault/). Dùng lại image Vault (có CLI) — không thêm image.
+  vault-init:
+    image: hashicorp/vault:2.1.2
+    entrypoint: ["/bin/sh", "/kms/setup.sh"]
+    user: vault
+    secrets: [vault_root_token, vault_token_digester, vault_token_profile]
+    volumes:
+      - ./kms:/kms:ro
+      - kms-public:/vault/file                   # nơi ghi public key siem-digest cho digester
+    networks: [kms]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    depends_on:
+      vault: { condition: service_healthy }
+
 networks:
   edge:
     name: topic09-edge                           # client → gateway (TB1a)
@@ -296,7 +348,22 @@ networks:
   telemetry:
     name: topic09-telemetry                      # Vector ↔ OpenSearch (TB5) — chỉ hai service này
     internal: true
+  kms:
+    name: topic09-kms                            # TB4: vault ↔ vault-init, digester (tuần 10: profile-api)
+    internal: true
 
 volumes:
   keycloak-data:
   opensearch-data:
+  vault-audit:                                   # audit log của Vault (vault ghi, vector đọc ro)
+  kms-public:                                    # public key siem-digest (vault-init ghi, digester đọc ro)
+
+# Docker secrets (compose, không swarm) = file trên máy bind vào /run/secrets/<tên>, chỉ đọc.
+# Sinh bằng ./scripts/gen-vault-secrets.sh. Không bao giờ commit (secrets/ trong .gitignore).
+secrets:
+  vault_root_token:
+    file: ./secrets/vault/root.token
+  vault_token_digester:
+    file: ./secrets/vault/digester.token
+  vault_token_profile:
+    file: ./secrets/vault/profile-api.token
