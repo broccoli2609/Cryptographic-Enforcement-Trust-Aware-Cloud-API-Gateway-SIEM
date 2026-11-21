@@ -1,0 +1,33 @@
+{
+  "id": "H9",
+  "name": "Telemetry bị sửa / xoá — hash chain, digest, khoảng trống",
+  "threats": ["T9"],
+  "scenarios": ["S10"],
+  "requirements": ["SR-09"],
+  "pillar": "RS (Secure Storage)",
+  "hypothesis": "Kẻ vào được mạng telemetry (OpenSearch không xác thực) sửa hoặc xoá sự kiện để xoá dấu vết, hoặc xoá digest, hoặc làm ngừng digester/Vault để không còn bằng chứng mới. Hash chain (Vector) + digest ký bằng Vault (digester) làm mọi thay đổi trên phần đã ký lộ ra; khoảng trống seq/digest lộ việc xoá.",
+  "evidence_fields": ["chain_epoch, chain_seq, event_hash (mọi sự kiện)", "index topic09-digests: digest_seq, first_seq, last_seq, head, prev_signature, signature, public_key", "source=digester: event_type=digest (decision_reason vault_unavailable…), event_type=chain_anomaly (seq_gap, head_mismatch, file_truncated…)", "event_type=chain_start (Vector khởi động lại = epoch mới)"],
+  "attack": [
+    {"id": "T1565.001", "name": "Data Manipulation: Stored Data Manipulation",
+     "evidence": "sửa một sự kiện trong bản sao index (topic09-events-h9test) → event_hash không khớp / head đã ký không khớp (scripts/hunt-test.sh mục H9)"},
+    {"id": "T1070", "name": "Indicator Removal",
+     "evidence": "xoá một sự kiện trong bản sao index → thiếu chain_seq trong phần digest đã phủ (scripts/hunt-test.sh mục H9)"}
+  ],
+  "parts": [
+    {"name": "băm lại + kiểm chữ ký digest (phần đã ký)", "kind": "chain_verify"},
+    {"name": "thiếu chain_seq trong epoch", "kind": "seq_gaps"},
+    {"name": "digest cũ hoặc mất digest", "kind": "digest_freshness", "max_age_s": 600},
+    {"name": "digester báo bất thường của chuỗi", "kind": "terms",
+     "query": {"term": {"event_type": "chain_anomaly"}},
+     "group_by": ["decision_reason", "digest_epoch"], "threshold": 1},
+    {"name": "digester ký lỗi (Vault ngừng / từ chối)", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "digest"}}, {"term": {"decision": "deny"}}]}},
+     "group_by": ["decision_reason"], "threshold": 1},
+    {"name": "Vector khởi động lại (epoch mới — đối chiếu với khoảng mất sự kiện)", "kind": "terms",
+     "query": {"term": {"event_type": "chain_start"}},
+     "group_by": ["chain_epoch"], "threshold": 1}
+  ],
+  "false_positives": "Vector khởi động lại (bảo trì) tạo epoch mới — sự kiện trong lúc dừng mất thật (docker_logs không có checkpoint), không phải bị xoá. Vault dev khởi động lại → digest_failed vài lượt cho tới khi vault-init chạy lại.",
+  "limits": "Chỉ phát hiện, không ngăn (OpenSearch không xác thực — residual risk T9). Sự kiện SAU digest gần nhất (< 5 phút) chỉ đối chiếu được với file chuỗi của Vector (chain_check --chain-file), hunt này kiểm phần đã ký. Log giả TRƯỚC Vector (service bị chiếm tự bịa log) không bị lộ. Kẻ sửa được cả file chuỗi (volume siem-chain) lẫn OpenSearch vẫn bị lộ bởi head đã ký trong digest.",
+  "response": "Đóng băng index (snapshot), so sổ digest cục bộ của digester với topic09-digests, chạy chain_check --chain-file để định vị sự kiện bị sửa/xoá; điều tra ai vào được mạng topic09-telemetry."
+}

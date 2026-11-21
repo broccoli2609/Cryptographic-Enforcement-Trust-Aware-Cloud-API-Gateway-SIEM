@@ -1,0 +1,32 @@
+{
+  "id": "H4",
+  "name": "Leo quyền authz — dò quyền, role đổi, policy đổi, gán role qua Admin API",
+  "threats": ["T4", "T8", "T11"],
+  "scenarios": ["S6"],
+  "requirements": ["SR-06", "SR-12"],
+  "pillar": "RP (Secure Process Logic)",
+  "hypothesis": "Người dùng (hoặc kẻ cầm token của họ) dò những route không được phép (nhiều deny liên tiếp ở PDP); sau đó quyền được nâng — role mới trong token (subject_roles đổi), policy bị sửa (policy_version đổi), hoặc admin Keycloak gán role — và quyền mới được dùng ngay.",
+  "evidence_fields": ["source=opa: decision, decision_reason (role_not_allowed, abac_dept, abac_tier), subject_roles, policy_version, principal_hash, route_template", "source=keycloak, event_type=idp_admin_event: idp_event, admin_resource_type, admin_resource_path, admin_target_hash (= principal_hash của user bị tác động)"],
+  "attack": [
+    {"id": "T1098", "name": "Account Manipulation",
+     "evidence": "idp_admin_event ADMIN_CREATE trên REALM_ROLE_MAPPING khi gán role manager cho dave qua Admin REST (scripts/admin-event-test.sh, chạy trong hunt-test.sh)"}
+  ],
+  "parts": [
+    {"name": "dò quyền: ≥ 3 lần PDP từ chối cùng principal", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"source": "opa"}}, {"term": {"decision": "deny"}},
+               {"terms": {"decision_reason": ["role_not_allowed", "abac_dept", "abac_tier"]}}]}},
+     "group_by": ["principal_hash"], "threshold": 3},
+    {"name": "role của cùng principal thay đổi trong cửa sổ", "kind": "cardinality",
+     "query": {"bool": {"filter": [{"term": {"source": "opa"}}, {"exists": {"field": "subject_roles"}}]}},
+     "group_by": ["principal_hash"], "distinct": "subject_roles", "min_distinct": 2},
+    {"name": "policy đổi version trong cửa sổ", "kind": "cardinality",
+     "query": {"bool": {"filter": [{"term": {"source": "opa"}}, {"exists": {"field": "policy_version"}}]}},
+     "group_by": ["policy_id"], "distinct": "policy_version", "min_distinct": 2},
+    {"name": "gán/gỡ role qua Admin API (và user đó có hoạt động sau đó)", "kind": "admin_then_use",
+     "query": {"bool": {"filter": [{"term": {"event_type": "idp_admin_event"}},
+               {"terms": {"admin_resource_type": ["REALM_ROLE_MAPPING", "CLIENT_ROLE_MAPPING", "GROUP_MEMBERSHIP"]}}]}}}
+  ],
+  "false_positives": "authz-test.sh / object-authz-test.sh cố ý gọi route bị cấm (lab). Đổi role hợp lệ theo quy trình (có ticket) cũng sinh admin event — đối chiếu runbook F6. Role trong token cũ còn tới 300 s sau khi đổi (residual risk tuần 7).",
+  "limits": "Chỉ thấy role trong input của PDP (token đã kiểm). Sửa policy trên đĩa + restart OPA chỉ lộ qua policy_version nếu người sửa tăng version — Rego không tự đổi version (T8: kiểm git).",
+  "response": "Đối chiếu admin event với yêu cầu thay đổi; gỡ role nếu không hợp lệ; xem principal đã gọi gì bằng quyền mới (lọc principal_hash = admin_target_hash)."
+}

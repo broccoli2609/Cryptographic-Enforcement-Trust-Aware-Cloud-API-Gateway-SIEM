@@ -1,0 +1,58 @@
+== A. Hạ tầng
+  [PASS] vault: healthy
+  [PASS] vault-init thoát mã 0
+  [PASS] vault không publish cổng nào ra host
+  [PASS] mạng topic09-kms là internal
+  [PASS] thành viên mạng kms: digester vault 
+== B. Khoá Transit
+  [PASS] siem-digest: kiểu → ed25519
+  [PASS] pii-enc: kiểu → aes256-gcm96
+  [PASS] siem-digest: exportable → false
+  [PASS] siem-digest: allow_plaintext_backup → false
+  [PASS] siem-digest: deletion_allowed → false
+  [PASS] pii-enc: exportable → false
+  [PASS] pii-enc: allow_plaintext_backup → false
+  [PASS] pii-enc: deletion_allowed → false
+  [PASS] kể cả root cũng không xoá được pii-enc (deletion_allowed=false)
+  [PASS] policy digester chỉ 1 đường dẫn → path"transit/sign/siem-digest"{capabilities=["update"]}
+  [PASS] policy profile-api chỉ encrypt + decrypt → path"transit/encrypt/pii-enc"{capabilities=["update"]}path"transit/decrypt/pii-enc"{capabilities=["update"]}
+  [PASS] token digester chỉ mang policy digester (không có default) → digester
+  [PASS] token profile-api chỉ mang policy profile-api (không có default) → profile-api
+== C. Token digester
+  [PASS] ký bằng siem-digest → ok
+  [PASS] encrypt pii-enc bị từ chối → denied
+  [PASS] decrypt pii-enc bị từ chối → denied
+  [PASS] verify siem-digest bị từ chối → denied
+  [PASS] đọc cấu hình khoá bị từ chối → denied
+  [PASS] xoay khoá siem-digest bị từ chối → denied
+  [PASS] export khoá ký bị từ chối → denied
+  [PASS] ký qua đường dẫn /sha2-256 bị từ chối → denied
+  [PASS] liệt kê policy bị từ chối → denied
+  [PASS] lookup-self bị từ chối → denied
+  [PASS] tạo token con bị từ chối → denied
+== D. Token profile-api
+  [PASS] encrypt pii-enc → ok
+  [PASS] ciphertext có version khoá (vault:v1:…) → vault:v1
+  [PASS] decrypt pii-enc → ok
+  [PASS] giải mã ra đúng plaintext ban đầu → ok
+  [PASS] ký siem-digest bị từ chối → denied
+  [PASS] rewrap bị từ chối → denied
+  [PASS] xoay pii-enc bị từ chối → denied
+  [PASS] đọc cấu hình khoá bị từ chối → denied
+  [PASS] xin data key dạng rõ bị từ chối → denied
+  [PASS] export khoá bị từ chối → denied
+  [PASS] encrypt bằng khoá khác bị từ chối → denied
+  [PASS] liệt kê secrets engine bị từ chối → denied
+== E. Kiểm chữ ký ngoài Vault bằng public key đã công bố (kms-public/siem-digest.json)
+  [PASS] openssl xác minh chữ ký Ed25519 của Vault bằng public key đã công bố
+  [PASS] đổi 1 ký tự của thông điệp → chữ ký sai
+== F. Audit device
+  [PASS] audit log có 402 dòng
+  [PASS] audit ghi 40 lần token-digester bị từ chối (S9 nhìn thấy được)
+  [PASS] audit log không chứa token thô nào (Vault HMAC giá trị)
+  [PASS] audit log không chứa plaintext (dạng rõ lẫn base64)
+== G. Token không lọt ra ngoài (ST4)
+  [PASS] không container nào có token Vault trong biến môi trường
+  [PASS] secrets/vault/ không bị git theo dõi
+
+Kết quả: 0 FAIL

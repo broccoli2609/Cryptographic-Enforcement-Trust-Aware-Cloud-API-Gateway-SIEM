@@ -1,0 +1,52 @@
+docker run --rm --network none -e SIEM_HMAC_KEY=unit-test-key-not-a-secret-0123456789abcdef -v /home/neckhurt2727/topic09-lab/telemetry/vector:/etc/vector:ro timberio/vector:0.60.0-alpine validate --no-environment /etc/vector/vector.yaml
+√ Loaded ["/etc/vector/vector.yaml"]
+√ Transforms configuration
+√ Sinks configuration
+------------------------------------
+                           Validated
+docker run --rm --network none -e SIEM_HMAC_KEY=unit-test-key-not-a-secret-0123456789abcdef -v /home/neckhurt2727/topic09-lab/telemetry/vector:/etc/vector:ro timberio/vector:0.60.0-alpine test /etc/vector/vector.yaml /etc/vector/tests.yaml
+Running tests
+test envoy P0 cho qua: băm principal, suy profile + decision, bỏ client_ip ... passed
+test envoy chặn (jwt_authn): decision = deny, không ghi upstream_cluster ... passed
+test envoy không có route: route_group = other, decision null ... passed
+test envoy: dòng log khởi động (không phải JSON) bị bỏ ... passed
+test auth-svc P2 cho qua: băm principal và aud, giữ jkt (khoá công khai), bỏ khoá thô ... passed
+test auth-svc từ chối: trường rỗng biến mất, batch-worker → private_key_jwt ... passed
+test auth-svc: log vận hành (listening) không vào SIEM ... passed
+test cùng sub ở Envoy và auth-svc → cùng principal_hash = HMAC-SHA256 (đối chiếu openssl) ... passed
+test OPA decision log: ánh xạ đủ trường, băm sub, không có input.path ... passed
+test OPA: dòng 'Received request' của health check không vào SIEM ... passed
+test backend: BOLA bị chặn — nguồn lấy từ nhãn compose của container ... passed
+test backend: /healthz của Docker không vào SIEM ... passed
+test S8: token nằm trong X-Request-Id → request_id bị bỏ, gắn cờ, không còn 'eyJ' ... passed
+test method lạ (không phải chữ cái) → OTHER + cờ ... passed
+test giá trị dạng JWT / PEM / code= trong trường hợp lệ bị che ... passed
+test trường lạ (authorization, cookie, body) không qua được allow-list ... passed
+test event_time sai dạng → dùng thời điểm Docker nhận, vẫn đúng RFC 3339 UTC ... passed
+test Keycloak LOGIN: giữ loại sự kiện + realm + client, băm userId, bỏ username/IP/redirect_uri ... passed
+test Keycloak LOGIN_ERROR: decision = deny, lý do là mã lỗi; userId null → không có hash ... passed
+test Keycloak CLIENT_LOGIN của batch-worker: grant client_credentials → private_key_jwt ... passed
+test Keycloak: log thường (không phải org.keycloak.events) không vào SIEM ... passed
+test Vault ký thành công: ai/làm gì/kết quả, version khoá; không giữ HMAC, client_id, IP ... passed
+test Vault từ chối (permission denied): decision deny; thao tác ngoài transit/ → kms_calls 0 ... passed
+test Vault: dòng type=request (trùng với response) không vào SIEM ... passed
+test digester ký digest: event_type digest, giữ số thứ tự/epoch/khoảng seq/version khoá ... passed
+test digester thấy thiếu seq: event_type chain_anomaly ... passed
+test digester: log vận hành (starting) không vào SIEM ... passed
+test chain: sự kiện được đánh số trong epoch + event_hash = SHA-256 của chính nó (khoá sắp xếp) ... passed
+test chain: nguồn log không tự đặt được chain_seq/event_hash (seal bỏ, chain đặt lại); mảng rỗng bị bỏ ... passed
+python3 telemetry/schema_check.py self
+Schema urn:topic09:telemetry:event, phiên bản 1.1.0
+  64 trường: 27 core (mục 13.1 đề bài) + 37 mở rộng
+  core / out_of_scope  2: workload_id, tls_peer_fingerprint
+  core / week10        2: attack_label, attack_id
+  core / week11        2: gateway_cycles, crypto_verify_cycles
+  core / week8        20: event_time, request_id, principal_hash, client_id, authn_method, token_type, alg, kid, iss, aud_hash, scope_set, proof_status, policy_id, policy_version, decision, decision_reason, route_template, backend_object_authz, status_code, policy_eval_us
+  core / week9         1: kms_calls
+Kết quả self: ĐẠT
+python3 telemetry/schema_check.py sync
+  allow-list của Vector (seal): 61 trường, schema: 61 trường (+ 3 trường chuỗi đặt sau seal: chain_epoch, chain_seq, event_hash)
+  danh sách `keep` của các bước norm_*: 3 danh sách, đều nằm trong schema ∪ khoá thô
+  index-template.json khớp schema
+  index-mapping.json khớp schema
+Kết quả sync: ĐẠT

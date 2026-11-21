@@ -1,0 +1,41 @@
+== A. Hạ tầng digester
+  [PASS] digester: healthy
+  [PASS] digester không publish cổng nào
+  [PASS] digester chỉ ở mạng: topic09-kms topic09-telemetry
+  [PASS] mount: file chuỗi + public key chỉ đọc, chỉ /state ghi được (/chain=false /kms-public=false /run/secrets/vault_token_digester=false /state=true)
+  [PASS] token digester không nằm trong biến môi trường (đọc từ /run/secrets)
+  [PASS] vector: ghi file chuỗi, đọc audit Vault chỉ đọc
+== B. Sinh lưu lượng và ký digest
+  [PASS] gateway-test P1 chạy xong (19 PASS) — có sự kiện của mọi nguồn
+  [PASS] SIGUSR1 → digester ký digest mới
+  [PASS] epoch hiện tại của chuỗi: 20261121T060624Z-1b636c01
+  (1692 sự kiện epoch này, 20 digest, file chuỗi tới seq 1690)
+== C. Kiểm độc lập (telemetry/chain_check.py)
+  [PASS] chain_check ĐẠT: event_hash, seq liền mạch, file chuỗi ↔ SIEM, chữ ký (khoá ghim), mắt xích, head
+      epoch 20261121T060624Z-1b636c01: 1692 sự kiện, seq 1..1692, 0 hash sai
+      file chuỗi epoch 20261121T060624Z-1b636c01: 1690 bản ghi đối chiếu
+      20 digest, mới nhất #20 lúc 2026-11-21T06:27:14.943194155Z phủ 1644..1690
+    Kết quả chain_check: ĐẠT
+  [PASS] nguồn có mặt trong chuỗi: auth-svc digester envoy keycloak opa orders-api profile-api vault vector
+  [PASS] Vault transit/verify xác nhận chữ ký digest mới nhất (valid=true)
+== D. Sổ cục bộ, schema
+  [PASS] sổ /state/digests.jsonl có đúng 20 digest, cùng chữ ký, cùng thứ tự với OpenSearch
+  [PASS] mọi sự kiện của epoch khớp telemetry/schema.json 1.1.0 (Đã đọc 1692 sự kiện. Theo nguồn: auth-svc=380, digester=13, envoy=490, keycloak)
+  [PASS] trường chuỗi chỉ do Vector đặt (log thô của service không có)
+== E. Sửa/xoá thử trên bản sao — phải bị phát hiện
+  [PASS] sửa một trường của sự kiện (giữ event_hash cũ) → phát hiện: epoch 20261121T060624Z-1b636c01 seq 846 (keycloak/idp_event): event_hash KHÔNG khớp nội du
+  [PASS] sửa sự kiện VÀ tính lại event_hash → phát hiện: digest 14: head đã ký ≠ H(953) tính lại từ sự kiện — chuỗi bị sửa
+  [PASS] xoá một sự kiện → phát hiện: digest 14: thiếu sự kiện seq 846 (digest không khai là khoảng thiếu) — bị xoá
+  [PASS] xoá một sự kiện (đối chiếu file chuỗi của Vector) → phát hiện: epoch 20261121T060624Z-1b636c01 seq 846: có trong file chuỗi của Vector nhưng KHÔNG có tro
+  [PASS] sửa head của digest → phát hiện: digest 20: signed_payload khác các trường của digest — trường bị sửa
+  [PASS] xoá một digest → phát hiện: digest đầu tiên có digest_seq 2 ≠ 1 — mất digest ở đầu
+== F. FI-4: Vault ngừng → digester fail-closed
+ Container topic09-lab-vault-1 Paused 
+  [PASS] Vault treo → digest_failed (vault_unavailable)
+  [PASS] không có digest nào được ghi khi Vault treo (sổ vẫn 20)
+ Container topic09-lab-vault-1 Unpaused 
+  [PASS] Vault chạy lại → ký được digest kế tiếp
+  [PASS] digest sau sự cố nối liền digest trước (seq +1, prev_signature, first_seq = last_seq + 1)
+  [PASS] sự kiện digest_failed đã vào SIEM (5) — H9 thấy được lúc không có digest
+
+Kết quả: 0 FAIL

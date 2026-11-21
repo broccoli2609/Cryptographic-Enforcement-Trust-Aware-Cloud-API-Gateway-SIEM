@@ -462,3 +462,223 @@ tests:
           .timestamp = now()
           .message = encode_json({"timestamp": "2026-11-13T06:22:35.008Z", "level": "INFO", "loggerName": "io.quarkus", "message": "Keycloak 26.8.0 on JVM started in 14.949s. Listening on: http://0.0.0.0:8080"})
     no_outputs_from: [norm_keycloak]
+
+  # ------------------------------------------------------------------ Keycloak admin event (tuần 9 T6)
+  # Dòng mẫu theo log THẬT của Keycloak 26.8 (21/11, gán role manager cho dave), UUID là giá trị giả.
+  - name: "Keycloak admin event (gán role): ADMIN_CREATE, path thành {id}, đích băm cùng công thức principal_hash, không IP"
+    inputs:
+      - insert_at: norm_keycloak
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"timestamp": "2026-11-21T06:20:00.1Z", "level": "INFO", "loggerName": "org.keycloak.events",
+            "message": "operationType=\"CREATE\", realmId=\"5b1e0c2a-0000-4000-8000-00000000aaaa\", realmName=\"master\", clientId=\"0f0e0d0c-0000-4000-8000-00000000bbbb\", userId=\"ad000000-0000-4000-8000-00000000cccc\", ipAddress=\"172.18.0.1\", resourceType=\"REALM_ROLE_MAPPING\", resourcePath=\"users/d4e5f6a7-0000-4000-8000-00000000dddd/role-mappings/realm\""})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "keycloak")
+              assert_eq!(.event_type, "idp_admin_event")
+              assert_eq!(.idp_event, "ADMIN_CREATE")
+              assert_eq!(.admin_resource_type, "REALM_ROLE_MAPPING")
+              assert_eq!(.admin_resource_path, "users/{id}/role-mappings/realm")
+              k = get_env_var!("SIEM_HMAC_KEY")
+              assert_eq!(.admin_target_hash, encode_base16(hmac("principal:d4e5f6a7-0000-4000-8000-00000000dddd", k)), "đích phải băm giống principal_hash")
+              assert_eq!(.principal_hash, encode_base16(hmac("principal:ad000000-0000-4000-8000-00000000cccc", k)), "người thao tác (admin) bị băm")
+              j = encode_json(.)
+              assert!(!contains(j, "d4e5f6a7") && !contains(j, "ad000000"), "UUID thật lọt vào SIEM")
+              assert!(!contains(j, "172.18.0.1") && !contains(j, "0f0e0d0c"), "IP / clientId nội bộ lọt vào SIEM")
+              assert!(!exists(.admin_target), "khoá thô admin_target phải bị bỏ ở seal")
+
+  - name: "Keycloak admin event không nhắm user (đổi client): không có admin_target_hash"
+    inputs:
+      - insert_at: norm_keycloak
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"timestamp": "2026-11-21T06:21:00Z", "level": "INFO", "loggerName": "org.keycloak.events",
+            "message": "operationType=\"UPDATE\", realmId=\"x\", realmName=\"master\", clientId=\"y\", userId=\"ad000000-0000-4000-8000-00000000cccc\", resourceType=\"CLIENT\", resourcePath=\"clients/0a0b0c0d-0000-4000-8000-00000000eeee\""})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.idp_event, "ADMIN_UPDATE")
+              assert_eq!(.admin_resource_path, "clients/{id}")
+              assert!(!exists(.admin_target_hash))
+
+  # ------------------------------------------------------------------ Vault audit (tuần 9)
+  # Dòng mẫu lấy theo audit log THẬT của Vault 2.1.2 (21/11), đã bỏ bớt khối không dùng. Mọi
+  # "hmac-sha256:…" là giá trị Vault đã HMAC; ở đây là chuỗi giả.
+  - name: "Vault ký thành công: ai/làm gì/kết quả, version khoá; không giữ HMAC, client_id, IP"
+    inputs:
+      - insert_at: norm_vault
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "time": "2026-11-21T05:36:10.036139626Z", "type": "response",
+            "auth": {"accessor": "hmac-sha256:aa11", "client_token": "hmac-sha256:bb22", "display_name": "token-digester",
+                     "policies": ["digester"], "token_policies": ["digester"], "token_type": "service"},
+            "request": {"id": "230935d9-1d3b-7852-ce86-0b7a7cbc2f96", "client_id": "0Pm9Bjteufcyu6on",
+                        "client_token": "hmac-sha256:bb22", "operation": "update", "mount_type": "transit",
+                        "path": "transit/sign/siem-digest", "data": {"input": "hmac-sha256:cc33"},
+                        "remote_address": "172.30.0.5", "remote_port": 40000},
+            "response": {"mount_type": "transit", "data": {"key_version": 1, "signature": "hmac-sha256:dd44"}}
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "vault")
+              assert_eq!(.event_type, "kms_audit")
+              assert_eq!(.event_time, "2026-11-21T05:36:10.036139626Z")
+              assert_eq!(.decision, "allow")
+              assert_eq!(.decision_reason, "ok")
+              assert_eq!(.kms_path, "transit/sign/siem-digest")
+              assert_eq!(.kms_operation, "update")
+              assert_eq!(.kms_client, "token-digester")
+              assert_eq!(.kms_policies, "digester")
+              assert_eq!(.kms_calls, 1)
+              assert_eq!(.kms_key_version, 1)
+              j = encode_json(.)
+              assert!(!contains(j, "hmac-sha256"), "giá trị HMAC của Vault không vào SIEM")
+              assert!(!contains(j, "172.30.0.5") && !contains(j, "0Pm9Bjteufcyu6on"))
+
+  - name: "Vault từ chối (permission denied): decision deny; thao tác ngoài transit/ → kms_calls 0"
+    inputs:
+      - insert_at: norm_vault
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({
+            "time": "2026-11-21T05:36:11Z", "type": "response", "error": "1 error occurred:\n\t* permission denied\n\n",
+            "auth": {"display_name": "token-digester", "policies": ["digester"], "token_policies": ["digester"]},
+            "request": {"operation": "list", "path": "sys/policies/acl"}
+          })
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.decision, "deny")
+              assert_eq!(.decision_reason, "permission_denied")
+              assert_eq!(.kms_path, "sys/policies/acl")
+              assert_eq!(.kms_calls, 0)
+              assert!(!exists(.kms_key_version))
+
+  - name: "Vault: dòng type=request (trùng với response) không vào SIEM"
+    inputs:
+      - insert_at: norm_vault
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"time": "2026-11-21T05:36:10Z", "type": "request", "auth": {"display_name": "token-digester"}, "request": {"operation": "update", "path": "transit/sign/siem-digest"}})
+    no_outputs_from: [norm_vault]
+
+  # ------------------------------------------------------------------ digester (tuần 9)
+  - name: "digester ký digest: event_type digest, giữ số thứ tự/epoch/khoảng seq/version khoá"
+    inputs:
+      - insert_at: norm_digester
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"time": "2026-11-21T06:00:00Z", "level": "INFO", "msg": "digest_signed", "service": "digester",
+            "event_time": "2026-11-21T06:00:00.123Z", "decision": "allow", "decision_reason": "ok", "kms_calls": 1,
+            "kms_key_version": 1, "digest_seq": 7, "digest_epoch": "20261121T053900Z-0a1b2c3d",
+            "digest_first_seq": 101, "digest_last_seq": 250, "head": "ab12"})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.source, "digester")
+              assert_eq!(.event_type, "digest")
+              assert_eq!(.digest_seq, 7)
+              assert_eq!(.digest_last_seq, 250)
+              assert_eq!(.kms_calls, 1)
+              assert!(!exists(.head), "trường ngoài danh sách keep bị bỏ")
+
+  - name: "digester thấy thiếu seq: event_type chain_anomaly"
+    inputs:
+      - insert_at: norm_digester
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"msg": "chain_gap", "service": "digester", "event_time": "2026-11-21T06:05:00Z",
+            "decision": "deny", "decision_reason": "seq_gap", "digest_epoch": "20261121T053900Z-0a1b2c3d",
+            "digest_first_seq": 120, "digest_last_seq": 122})
+    outputs:
+      - extract_from: seal
+        conditions:
+          - type: vrl
+            source: |
+              assert_eq!(.event_type, "chain_anomaly")
+              assert_eq!(.decision_reason, "seq_gap")
+              assert_eq!(.digest_first_seq, 120)
+
+  - name: "digester: log vận hành (starting) không vào SIEM"
+    inputs:
+      - insert_at: norm_digester
+        type: vrl
+        source: |
+          .timestamp = now()
+          .message = encode_json({"msg": "starting", "service": "digester", "interval": "5m0s"})
+    no_outputs_from: [norm_digester]
+
+  # ------------------------------------------------------------------ hash chain (tuần 9)
+  # Transform Lua phát sự kiện chain_start (seq 1) lúc khởi động, nên mỗi test dưới đây thấy 2 sự
+  # kiện ra khỏi chain_hash; điều kiện xử lý cả hai.
+  - name: "chain: sự kiện được đánh số trong epoch + event_hash = SHA-256 của chính nó (khoá sắp xếp)"
+    inputs:
+      - insert_at: seal
+        type: vrl
+        source: |
+          .source = "envoy"
+          .event_type = "gateway_access"
+          .event_time = "2026-11-21T06:10:00.5Z"
+          .status_code = 200
+          .duration_ms = 0.142
+          .profile = "p1"
+    outputs:
+      - extract_from: chain_hash
+        conditions:
+          - type: vrl
+            source: |
+              assert!(match(string!(.chain_epoch), r'^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$'), "chain_epoch sai dạng")
+              if .event_type == "chain_start" {
+                assert_eq!(.source, "vector")
+                assert_eq!(.chain_seq, 1)
+              } else {
+                assert_eq!(.chain_seq, 2)
+                assert_eq!(.duration_ms, 0.142)
+              }
+              h = string!(.event_hash)
+              c = .
+              c = remove!(c, ["event_hash"])
+              assert_eq!(h, sha2(encode_json(c), variant: "SHA-256"), "event_hash không khớp nội dung")
+              assert!(match(h, r'^[0-9a-f]{64}$'))
+
+  - name: "chain: nguồn log không tự đặt được chain_seq/event_hash (seal bỏ, chain đặt lại); mảng rỗng bị bỏ"
+    inputs:
+      - insert_at: seal
+        type: vrl
+        source: |
+          .source = "auth-svc"
+          .event_type = "authz_decision"
+          .event_time = "2026-11-21T06:11:00Z"
+          .chain_seq = 999
+          .chain_epoch = "19990101T000000Z-deadbeef"
+          .event_hash = "0000000000000000000000000000000000000000000000000000000000000000"
+          .scope_set = []
+    outputs:
+      - extract_from: chain_hash
+        conditions:
+          - type: vrl
+            source: |
+              assert!(.chain_seq != 999, "chain_seq do nguồn đặt lọt qua")
+              assert!(.chain_epoch != "19990101T000000Z-deadbeef")
+              assert!(.event_hash != "0000000000000000000000000000000000000000000000000000000000000000")
+              assert!(!exists(.scope_set), "mảng rỗng phải bị bỏ trước khi qua Lua")

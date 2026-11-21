@@ -1,6 +1,6 @@
 COMPOSE ?= docker compose
 
-.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence policy-test authz-test dpop-client dpop-login dpop-test object-authz-test schema-test vector-validate siem-mapping siem-test siem-scan siem-search
+.PHONY: up down ps logs smoke test env-check perf-check certs batch-key realm pkce pkce-negative cc tls gateway-test failclosed evidence policy-test authz-test dpop-client dpop-login dpop-test object-authz-test schema-test vector-validate siem-mapping siem-test siem-scan siem-search vault-secrets kms-test chain-test digest-now admin-event-test hunt hunt-test siem-dashboard
 
 OPA_IMAGE ?= openpolicyagent/opa:1.21.4-static
 VECTOR_IMAGE ?= timberio/vector:0.60.0-alpine
@@ -8,7 +8,7 @@ VECTOR_IMAGE ?= timberio/vector:0.60.0-alpine
 # known-answer test tính sẵn theo khoá này). Khoá thật là SIEM_HMAC_KEY trong .env.
 VECTOR_TEST_KEY ?= unit-test-key-not-a-secret-0123456789abcdef
 
-up:            ## Build và chạy lab nền (cần đã chạy `make certs` một lần)
+up:            ## Build và chạy lab nền (cần đã chạy `make certs` và `make vault-secrets` một lần)
 	$(COMPOSE) up -d --build
 
 down:          ## Dừng lab (giữ dữ liệu Keycloak)
@@ -20,12 +20,13 @@ ps:            ## Trạng thái các container
 logs:          ## Xem log liên tục
 	$(COMPOSE) logs -f --tail=50
 
-smoke:         ## Kiểm nhanh lab sau khi up (26 PASS là đạt — tuần 8)
+smoke:         ## Kiểm nhanh lab sau khi up (32 PASS là đạt — tuần 9)
 	./scripts/smoke-test.sh
 
-test:          ## Unit test của backend và auth-svc
+test:          ## Unit test của backend, auth-svc, digester
 	cd workloads && go test ./...
 	cd gateway/auth-svc && go test ./...
+	cd telemetry/digester && go test ./...
 
 env-check:     ## Kiểm Docker, Go, perf trên máy
 	./scripts/check-env.sh
@@ -110,6 +111,32 @@ siem-test:     ## Đường ống đầu-cuối: 5 nguồn → Vector → OpenSe
 siem-scan:     ## Scanner SR-10: tìm token/khoá/mã uỷ quyền/bí mật/định danh thô trong SIEM và dataset/
 	./scripts/siem-scan.sh
 
+# --- Tuần 9: Vault Transit, hash chain, digest ---
+
+vault-secrets: ## Sinh 3 token Vault ngẫu nhiên vào secrets/vault/ (chạy trước `make up` lần đầu; không ghi đè)
+	./scripts/gen-vault-secrets.sh
+
+kms-test:      ## Vault: 2 khoá Transit, policy tách biệt digester / profile-api, audit, chữ ký kiểm được ngoài Vault
+	./scripts/kms-test.sh
+
+chain-test:    ## Hash chain + digest ký bằng Vault đầu-cuối, kiểm độc lập, 6 kiểu sửa/xoá, FI-4 (Vault treo)
+	./scripts/chain-test.sh
+
+digest-now:    ## Bắt digester ký digest ngay (không chờ 5 phút)
+	$(COMPOSE) kill -s USR1 digester
+
+admin-event-test: ## Sự kiện quản trị Keycloak → SIEM: gán/gỡ role một user, đích băm như principal_hash (SR-12)
+	./scripts/admin-event-test.sh
+
+hunt:          ## Chạy 6 hunt (detections/H*.json) trên SIEM, cửa sổ 24 giờ — thêm SINCE=2026-11-21T06:00:00Z
+	python3 detections/hunt.py $(if $(SINCE),--since $(SINCE))
+
+hunt-test:     ## Sinh kịch bản S1–S10 rồi khẳng định 6 hunt bắt được, không báo nhầm, H9 thấy sửa/xoá log
+	./scripts/hunt-test.sh
+
+siem-dashboard: ## Dashboard SIEM tĩnh (HTML tự chứa) → docs/evidence/siem-dashboard-<ngày>.html
+	./scripts/siem-dashboard.sh $(SINCE)
+
 siem-search:   ## In 20 sự kiện mới nhất trong SIEM (OpenSearch không có port → gọi từ trong container)
 	@$(COMPOSE) exec -T opensearch curl -s -H 'Content-Type: application/json' 'http://127.0.0.1:9200/topic09-events/_search?size=20' \
 	  -d '{"sort":[{"event_time":"desc"}]}' | python3 -c 'import json,sys; [print(json.dumps(h["_source"], ensure_ascii=False, sort_keys=True)) for h in json.load(sys.stdin)["hits"]["hits"]]'
@@ -131,4 +158,9 @@ evidence:      ## Chạy lại mọi kiểm tra tuần 3–8 và lưu vào docs/
 	./scripts/object-authz-test.sh > docs/evidence/object-authz-$$(date +%F).txt
 	./scripts/telemetry-schema-test.sh > docs/evidence/telemetry-schema-$$(date +%F).txt
 	./scripts/siem-test.sh > docs/evidence/siem-pipeline-$$(date +%F).txt
+	./scripts/kms-test.sh > docs/evidence/kms-vault-$$(date +%F).txt
+	./scripts/chain-test.sh > docs/evidence/hash-chain-digest-$$(date +%F).txt
+	./scripts/admin-event-test.sh > docs/evidence/admin-events-$$(date +%F).txt
+	./scripts/hunt-test.sh > docs/evidence/hunts-$$(date +%F).txt
+	./scripts/siem-dashboard.sh
 	./scripts/smoke-test.sh > docs/evidence/smoke-test-$$(date +%F).txt

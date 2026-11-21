@@ -439,8 +439,15 @@ def vrl_lists(text, var):
 
 
 def mode_sync(schema):
-    """Ba thứ phải khớp nhau: schema ↔ allow-list của Vector ↔ mapping của OpenSearch."""
-    props = set(schema["properties"])
+    """Ba thứ phải khớp nhau: schema ↔ allow-list của Vector ↔ mapping của OpenSearch.
+
+    Trường có "x-stage": "chain" (chain_epoch, chain_seq, event_hash — tuần 9) do hai bước SAU
+    seal đặt (Lua chain_seq, VRL chain_hash) nên phải VẮNG MẶT trong allow-list của seal: nếu có,
+    một dòng log tự ghi "chain_seq" sẽ lọt qua seal (dù sau đó bị ghi đè).
+    """
+    all_props = set(schema["properties"])
+    chain = {k for k, s in schema["properties"].items() if s.get("x-stage") == "chain"}
+    props = all_props - chain
     raw_only = set(schema.get("x-raw-only", {}).get("fields", {}))
     errs = []
 
@@ -455,13 +462,19 @@ def mode_sync(schema):
         errs.append("vector.yaml phải có đúng một danh sách `allowed = [...]` (bước seal), thấy %d" % len(allowed))
     else:
         a = set(allowed[0])
-        if a - props:
-            errs.append("allow-list của Vector có trường KHÔNG có trong schema: %s" % sorted(a - props))
+        if a & chain:
+            errs.append("allow-list của seal chứa trường của hash chain (phải do chain_seq/chain_hash đặt): %s" % sorted(a & chain))
+        if a - all_props:
+            errs.append("allow-list của Vector có trường KHÔNG có trong schema: %s" % sorted(a - all_props))
         if props - a:
             errs.append("schema có trường mà allow-list của Vector thiếu (sẽ bị bỏ ở seal): %s" % sorted(props - a))
         if a & raw_only:
             errs.append("allow-list của Vector chứa khoá thô: %s" % sorted(a & raw_only))
-        print("  allow-list của Vector (seal): %d trường, schema: %d trường" % (len(a), len(props)))
+        print("  allow-list của Vector (seal): %d trường, schema: %d trường (+ %d trường chuỗi đặt sau seal: %s)"
+              % (len(a), len(props), len(chain), ", ".join(sorted(chain))))
+        for f in sorted(chain):
+            if not re.search(r"\.%s\s*=" % re.escape(f), text):
+                errs.append("vector.yaml không có bước nào đặt trường chuỗi %s" % f)
     keeps = vrl_lists(text, "keep")
     for k in keeps:
         bad = set(k) - props - raw_only

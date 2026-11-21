@@ -1,0 +1,27 @@
+{
+  "id": "H2",
+  "name": "Sender-binding mismatch — token gắn khoá bị dùng bằng khoá khác / hạ cấp sang Bearer",
+  "threats": ["T1"],
+  "scenarios": ["S4"],
+  "requirements": ["SR-04"],
+  "pillar": "RC (Secure Communication)",
+  "hypothesis": "Kẻ tấn công lấy cắp access token DPoP (cnf.jkt = khoá của nạn nhân) nhưng không có khoá riêng của nạn nhân. Họ (a) ký proof bằng khoá của mình → cnf_jkt ≠ proof_jkt, hoặc (b) bỏ DPoP và gửi token kiểu Bearer sang P1/P2 để né kiểm proof.",
+  "evidence_fields": ["event_type=authz_decision", "proof_status=key_mismatch", "cnf_jkt", "proof_jkt", "decision_reason (dpop_key_mismatch, wrong_typ, token_not_dpop_bound)", "profile", "principal_hash"],
+  "attack": [
+    {"id": "T1528", "name": "Steal Application Access Token",
+     "evidence": "token gắn khoá A được trình kèm proof ký bằng khoá B (cnf_jkt ≠ proof_jkt) — dpop-test.sh ca 'token bị trộm + khoá lạ'"},
+    {"id": "T1550.001", "name": "Use Alternate Authentication Material: Application Access Token",
+     "evidence": "token DPoP gửi kiểu Bearer ở P1 bị từ chối wrong_typ (dpop-test.sh mục hạ cấp)"}
+  ],
+  "parts": [
+    {"name": "proof ký bằng khoá khác khoá gắn token", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "authz_decision"}}, {"term": {"proof_status": "key_mismatch"}}]}},
+     "group_by": ["principal_hash", "cnf_jkt", "proof_jkt"], "threshold": 1},
+    {"name": "hạ cấp: token DPoP gửi kiểu Bearer / token thường gửi vào P2", "kind": "terms",
+     "query": {"bool": {"filter": [{"term": {"event_type": "authz_decision"}}, {"terms": {"decision_reason": ["wrong_typ", "token_not_dpop_bound"]}}]}},
+     "group_by": ["profile", "decision_reason", "principal_hash"], "threshold": 1}
+  ],
+  "false_positives": "Client cấu hình sai (dùng client web-app-dpop nhưng quên gửi DPoP). wrong_typ ở auth-svc gần như chỉ đến từ token DPoP: ID token / refresh token đã bị jwt_authn chặn vì aud trước khi tới auth-svc.",
+  "limits": "P0 (:8444) nhận token DPoP như bearer, không có sự kiện auth-svc — có chủ đích, chỉ để đo. Kẻ có cả token lẫn khoá riêng của nạn nhân (XSS chạy trong client) không bị H2 phát hiện.",
+  "response": "Coi token là bị lộ: logout phiên, xoay khoá DPoP phía client; tìm nơi rò token (log, proxy, máy client)."
+}

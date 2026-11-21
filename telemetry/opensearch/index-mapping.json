@@ -1,6 +1,18 @@
 {
   "dynamic": "strict",
   "properties": {
+    "admin_resource_path": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "admin_resource_type": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "admin_target_hash": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
     "alg": {
       "ignore_above": 512,
       "type": "keyword"
@@ -33,6 +45,13 @@
       "ignore_above": 512,
       "type": "keyword"
     },
+    "chain_epoch": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "chain_seq": {
+      "type": "long"
+    },
     "client_id": {
       "ignore_above": 512,
       "type": "keyword"
@@ -52,8 +71,25 @@
       "ignore_above": 512,
       "type": "keyword"
     },
+    "digest_epoch": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "digest_first_seq": {
+      "type": "long"
+    },
+    "digest_last_seq": {
+      "type": "long"
+    },
+    "digest_seq": {
+      "type": "long"
+    },
     "duration_ms": {
       "type": "double"
+    },
+    "event_hash": {
+      "ignore_above": 512,
+      "type": "keyword"
     },
     "event_time": {
       "format": "strict_date_optional_time_nanos",
@@ -88,6 +124,25 @@
     },
     "kms_calls": {
       "type": "long"
+    },
+    "kms_client": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "kms_key_version": {
+      "type": "long"
+    },
+    "kms_operation": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "kms_path": {
+      "ignore_above": 512,
+      "type": "keyword"
+    },
+    "kms_policies": {
+      "ignore_above": 512,
+      "type": "keyword"
     },
     "listener_port": {
       "type": "long"
