@@ -11,3 +11,6 @@ workloads/bin/
 *.out
 .vscode/
 .idea/
+
+# Python (công cụ kiểm của telemetry/ và detections/ — tuần 9)
+__pycache__/

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Kiểm nhanh lab sau "docker compose up -d --build".
-# Chạy:  ./scripts/smoke-test.sh      (mã thoát = số mục FAIL; tuần 8: 26 mục PASS là đạt)
+# Chạy:  ./scripts/smoke-test.sh      (mã thoát = số mục FAIL; tuần 9: 32 mục PASS là đạt)
 set -u
 cd "$(dirname "$0")/.." || exit 1
 FAIL=0
@@ -15,7 +15,7 @@ for _ in $(seq 1 36); do
   sleep 5
 done
 
-for svc in keycloak opa auth-svc orders-api profile-api opensearch vector; do
+for svc in keycloak opa auth-svc orders-api profile-api opensearch vector vault digester; do
   s=$(health "$svc")
   if [ "$s" = healthy ]; then pass "$svc: healthy"; else fail "$svc: $s"; fi
 done
@@ -92,10 +92,11 @@ pub="$(docker port "$(docker compose ps -q opensearch)" 2>/dev/null)$(docker por
 if [ -z "$pub" ]; then pass "OpenSearch và Vector không publish cổng nào ra host"; else fail "SIEM đang publish cổng ra host: $pub"; fi
 members=$(docker network inspect topic09-telemetry -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | tr ' ' '\n' | sed -E 's/^topic09-lab-//; s/-[0-9]+$//' | grep . | sort | tr '\n' ' ')
 internal=$(docker network inspect topic09-telemetry -f '{{.Internal}}' 2>/dev/null)
-if [ "$members" = "opensearch vector " ] && [ "$internal" = true ]; then
-  pass "Mạng topic09-telemetry (internal) chỉ có opensearch + vector"
+# Tuần 9: digester vào mạng này để GHI digest (ontology triển khai, security-pillars.md).
+if [ "$members" = "digester opensearch vector " ] && [ "$internal" = true ]; then
+  pass "Mạng topic09-telemetry (internal) chỉ có digester + opensearch + vector"
 else
-  fail "Mạng topic09-telemetry: thành viên '$members', internal=$internal (muốn 'opensearch vector', true)"
+  fail "Mạng topic09-telemetry: thành viên '$members', internal=$internal (muốn 'digester opensearch vector', true)"
 fi
 init=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(docker compose ps -aq opensearch-init)" 2>/dev/null)
 if [ "$init" = "exited 0" ]; then pass "opensearch-init đã nạp mapping (dynamic: strict) rồi thoát mã 0"; else fail "opensearch-init: ${init:-không có} (muốn 'exited 0')"; fi
@@ -110,6 +111,29 @@ for _ in $(seq 1 10); do
   [ "${n:-0}" -ge 3 ] && break
 done
 if [ "${n:-0}" -ge 3 ]; then pass "Đường ống telemetry sống: 3 request 401 vừa rồi đã thành sự kiện Envoy trong SIEM"; else fail "SIEM chỉ nhận ${n:-0}/3 sự kiện Envoy sau 20 s (xem: docker compose logs vector)"; fi
+
+# --- KMS (tuần 9): Vault dev + Transit, digester. Không cổng; mạng kms internal (TB4) ---
+pub="$(docker port "$(docker compose ps -q vault)" 2>/dev/null)$(docker port "$(docker compose ps -q digester)" 2>/dev/null)"
+if [ -z "$pub" ]; then pass "Vault và digester không publish cổng nào ra host"; else fail "KMS đang publish cổng ra host: $pub"; fi
+members=$(docker network inspect topic09-kms -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | tr ' ' '\n' | sed -E 's/^topic09-lab-//; s/-[0-9]+$//' | grep . | sort | tr '\n' ' ')
+internal=$(docker network inspect topic09-kms -f '{{.Internal}}' 2>/dev/null)
+if [ "$members" = "digester vault " ] && [ "$internal" = true ]; then
+  pass "Mạng topic09-kms (internal) chỉ có digester + vault"
+else
+  fail "Mạng topic09-kms: thành viên '$members', internal=$internal (muốn 'digester vault', true)"
+fi
+init=$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(docker compose ps -aq vault-init)" 2>/dev/null)
+if [ "$init" = "exited 0" ]; then pass "vault-init đã dựng khoá/policy/token/audit rồi thoát mã 0"; else fail "vault-init: ${init:-không có} (muốn 'exited 0')"; fi
+# Ký ngay một digest (SIGUSR1) rồi chờ log digest_signed — đủ cả vòng Vector → file chuỗi →
+# digester → Vault Transit → sổ digest + OpenSearch.
+before=$(docker compose logs --no-log-prefix digester 2>/dev/null | grep -c '"msg":"digest_signed"')
+docker compose kill -s USR1 digester >/dev/null 2>&1
+ok=0
+for _ in $(seq 1 15); do
+  sleep 1
+  [ "$(docker compose logs --no-log-prefix digester 2>/dev/null | grep -c '"msg":"digest_signed"')" -gt "$before" ] && { ok=1; break; }
+done
+if [ $ok = 1 ]; then pass "digester ký được digest bằng Vault Transit siem-digest (SIGUSR1)"; else fail "digester không ký được digest (xem: docker compose logs digester)"; fi
 
 echo
 docker compose ps

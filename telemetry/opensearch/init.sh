@@ -23,3 +23,8 @@ case "$code" in
   404) echo "index topic09-events: chưa có, sẽ được tạo theo template" ;;
   *) echo "index topic09-events: cập nhật mapping thất bại (HTTP $code)" >&2; exit 1 ;;
 esac
+
+# 3. Tuần 9: index topic09-digests (digester ghi digest đã ký). Mapping strict viết tay, vì đây
+#    không phải sự kiện SIEM (không sinh từ schema.json). digester tạo index ở lần ghi đầu.
+curl -fsS -X PUT -H "$H" --data-binary @/init/digest-template.json "$OS/_index_template/topic09-digests" >/dev/null
+echo "index template topic09-digests: đã nạp"

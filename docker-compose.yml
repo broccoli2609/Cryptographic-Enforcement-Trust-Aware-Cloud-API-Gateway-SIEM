@@ -264,8 +264,11 @@ services:
         target: /etc/vector/vector.yaml
         read_only: true
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    tmpfs:
-      - /var/lib/vector                          # data_dir: Vector cần một thư mục ghi được; không lưu gì lâu dài
+      # Tuần 9: data_dir thành volume (thay tmpfs) — giữ vị trí đã đọc của audit log Vault qua các
+      # lần Vector khởi động lại (không đọc lại từ đầu → không nhân đôi sự kiện).
+      - vector-data:/var/lib/vector
+      - vault-audit:/vault-audit:ro              # audit device của Vault (vault ghi)
+      - siem-chain:/var/lib/vector-chain         # file hash chain (chỉ Vector ghi; digester đọc ro)
     networks: [telemetry]                        # KHÔNG có "ports"
     read_only: true
     cap_drop: [ALL]
@@ -331,6 +334,48 @@ services:
     depends_on:
       vault: { condition: service_healthy }
 
+  # digester (Go, tuần 9) — đọc file hash chain của Vector (KHÔNG đọc OpenSearch), nối
+  # H_i = SHA-256(H_{i-1} ‖ event_hash_i), 5 phút ký một digest bằng Vault Transit siem-digest,
+  # ghi vào OpenSearch topic09-digests + sổ cục bộ /state/digests.jsonl. Vault lỗi → không có digest
+  # nào không chữ ký (fail-closed). Ký ngay (dùng trong test):  docker compose kill -s USR1 digester
+  digester:
+    build:
+      context: ./telemetry/digester
+    image: topic09/digester:dev
+    environment:
+      CHAIN_DIR: /chain
+      STATE_DIR: /state
+      # Địa chỉ ghi cứng, không lấy từ dữ liệu (như JWKS_URL/OPA_URL của auth-svc).
+      VAULT_ADDR: http://vault:8200
+      VAULT_KEY_NAME: siem-digest                # TÊN khoá Transit (không phải bí mật)
+      VAULT_TOKEN_FILE: /run/secrets/vault_token_digester   # Docker secret, không phải biến môi trường (luật 8)
+      PUBKEY_FILE: /kms-public/siem-digest.json
+      OPENSEARCH_URL: http://opensearch:9200
+      DIGEST_INDEX: topic09-digests
+      DIGEST_INTERVAL: 5m                        # luật telemetry: digest bị xoá = khoảng trống > 5 phút
+      POLL_INTERVAL: 10s
+      GAP_GRACE: 30s                             # seq thiếu quá 30 s → tuyên bố khoảng thiếu (H9)
+    secrets: [vault_token_digester]
+    volumes:
+      - siem-chain:/chain:ro
+      - kms-public:/kms-public:ro
+      - digester-state:/state                    # sổ digest; image tạo sẵn /state thuộc uid 65532
+    # telemetry: ghi digest vào OpenSearch; kms: gọi Vault (TB4). KHÔNG có "ports".
+    networks: [telemetry, kms]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "/app", "-healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      vault-init: { condition: service_completed_successfully }
+      opensearch-init: { condition: service_completed_successfully }
+      vector: { condition: service_healthy }
+
 networks:
   edge:
     name: topic09-edge                           # client → gateway (TB1a)
@@ -346,7 +391,7 @@ networks:
     name: topic09-backend
     internal: true                               # mạng kín: không ra Internet, không publish port
   telemetry:
-    name: topic09-telemetry                      # Vector ↔ OpenSearch (TB5) — chỉ hai service này
+    name: topic09-telemetry                      # Vector ↔ OpenSearch (TB5); tuần 9 thêm digester (ghi digest)
     internal: true
   kms:
     name: topic09-kms                            # TB4: vault ↔ vault-init, digester (tuần 10: profile-api)
@@ -357,6 +402,9 @@ volumes:
   opensearch-data:
   vault-audit:                                   # audit log của Vault (vault ghi, vector đọc ro)
   kms-public:                                    # public key siem-digest (vault-init ghi, digester đọc ro)
+  vector-data:                                   # data_dir của Vector (checkpoint file source)
+  siem-chain:                                    # file hash chain (vector ghi, digester đọc ro)
+  digester-state:                                # sổ digest cục bộ của digester
 
 # Docker secrets (compose, không swarm) = file trên máy bind vào /run/secrets/<tên>, chỉ đọc.
 # Sinh bằng ./scripts/gen-vault-secrets.sh. Không bao giờ commit (secrets/ trong .gitignore).

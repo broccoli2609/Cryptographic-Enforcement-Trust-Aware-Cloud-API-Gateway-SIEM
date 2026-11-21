@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "description": "Index topic09-digests (tuan 9): moi tai lieu = mot digest do digester ky bang Vault Transit siem-digest. Dinh dang: telemetry/digester/internal/digest. Viet tay (khong sinh tu schema.json: day khong phai su kien SIEM)."
+  },
+  "index_patterns": ["topic09-digests*"],
+  "priority": 100,
+  "template": {
+    "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}},
+    "mappings": {
+      "dynamic": "strict",
+      "properties": {
+        "v": {"type": "long"},
+        "digest_seq": {"type": "long"},
+        "created_at": {"type": "date_nanos", "format": "strict_date_optional_time_nanos"},
+        "key": {"type": "keyword"},
+        "chain_epoch": {"type": "keyword"},
+        "first_seq": {"type": "long"},
+        "last_seq": {"type": "long"},
+        "prev_head": {"type": "keyword"},
+        "head": {"type": "keyword"},
+        "gaps": {"type": "keyword"},
+        "prev_signature": {"type": "keyword", "index": false},
+        "signature": {"type": "keyword", "index": false},
+        "key_version": {"type": "long"},
+        "public_key": {"type": "keyword"},
+        "signed_payload": {"type": "keyword", "index": false, "doc_values": false}
+      }
+    }
+  }
+}

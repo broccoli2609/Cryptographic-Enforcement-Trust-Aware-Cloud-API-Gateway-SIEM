@@ -3,7 +3,7 @@
   "$id": "urn:topic09:telemetry:event",
   "title": "Topic 09 — Cloud Gateway Security Telemetry event",
   "description": "Một sự kiện bảo mật SAU KHI qua Vector, tức là thứ nằm trong SIEM (OpenSearch) và trong dataset. 27 trường đầu (x-core = 1..27) là danh sách ở mục 13.1 của đề bài, giữ nguyên tên. Các trường còn lại là phần mở rộng của lab. Schema là allow-list: additionalProperties = false, nên trường không khai báo ở đây không được vào SIEM (SR-10). Mỗi nguồn chỉ điền những trường nó biết; trường không biết là null. Nối các sự kiện của cùng một request bằng request_id (OPA: bằng opa_decision_id).",
-  "x-schema-version": "1.0.0",
+  "x-schema-version": "1.1.0",
   "x-raw-only": {
     "description": "Trường chỉ có trong log thô của service (docker logs), Vector biến đổi hoặc bỏ trước khi vào SIEM.",
     "fields": {
@@ -13,7 +13,8 @@
       "msg": "→ event_type",
       "time": "bỏ (slog tự ghi; event_time mới là thời điểm của sự kiện)",
       "level": "bỏ",
-      "client_ip": "bỏ (trong lab luôn là IP của bridge Docker, không có giá trị hunt)"
+      "client_ip": "bỏ (trong lab luôn là IP của bridge Docker, không có giá trị hunt)",
+      "admin_target": "UUID của user bị tác động trong sự kiện quản trị Keycloak (norm_keycloak lấy từ resourcePath) → admin_target_hash = HMAC-SHA256(khoá, \"principal:\" ‖ UUID), rồi xoá (tuần 9)"
     }
   },
   "type": "object",
@@ -151,9 +152,9 @@
       "x-core": 17,
       "x-sources": ["envoy", "auth-svc", "opa", "keycloak"],
       "x-status": "week8",
-      "description": "Mã lý do cố định (không phải câu chữ tự do): ok, expired, alg_not_allowed, wrong_aud, dpop_replay, role_not_allowed, abac_dept, policy_unavailable… Envoy: response_code_details.",
+      "description": "Mã lý do cố định (không phải câu chữ tự do): ok, expired, alg_not_allowed, wrong_aud, dpop_replay, role_not_allowed, abac_dept, policy_unavailable… Envoy: response_code_details (có thể chứa dấu nháy đơn, ví dụ jwt_authn_access_denied{Jwks_doesn't_have_key_to_match_kid_or_alg} — thêm vào pattern 21/11).",
       "type": ["string", "null"],
-      "pattern": "^[A-Za-z0-9_.{}\\[\\],:=/-]{1,128}$"
+      "pattern": "^[A-Za-z0-9_.{}\\[\\],:=/'-]{1,128}$"
     },
     "route_template": {
       "x-core": 18,
@@ -206,9 +207,9 @@
     },
     "kms_calls": {
       "x-core": 24,
-      "x-sources": [],
+      "x-sources": ["vault", "digester"],
       "x-status": "week9",
-      "description": "Số lần gọi KMS (Vault Transit) gắn với sự kiện. null cho tới tuần 9 (digester ký digest).",
+      "description": "Số lần gọi KMS (Vault Transit) gắn với sự kiện. vault (audit): 1 với đường dẫn transit/…, 0 với sys/…, auth/…; digester: 1 lần ký mỗi digest. Sự kiện gateway/backend: null (tuần 9 chưa có lời gọi KMS trên đường request; profile-api điền từ tuần 10).",
       "type": ["integer", "null"],
       "minimum": 0
     },
@@ -240,16 +241,16 @@
     "source": {
       "x-sources": ["vector"],
       "x-status": "week8",
-      "description": "Thành phần sinh sự kiện (tên service trong docker compose).",
+      "description": "Thành phần sinh sự kiện (tên service trong docker compose). vault = audit device của Vault (file, không phải stdout); vector = sự kiện do chính đường ống sinh (chain_start).",
       "type": "string",
-      "enum": ["envoy", "auth-svc", "opa", "orders-api", "profile-api", "keycloak"]
+      "enum": ["envoy", "auth-svc", "opa", "orders-api", "profile-api", "keycloak", "vault", "digester", "vector"]
     },
     "event_type": {
       "x-sources": ["vector"],
       "x-status": "week8",
-      "description": "Loại sự kiện: gateway_access (Envoy, mỗi request một dòng), authz_decision (auth-svc), policy_decision (OPA decision log), backend_request (orders-api, profile-api), idp_event (Keycloak).",
+      "description": "Loại sự kiện: gateway_access (Envoy, mỗi request một dòng), authz_decision (auth-svc), policy_decision (OPA decision log), backend_request (orders-api, profile-api), idp_event (Keycloak). Tuần 9: idp_admin_event (Keycloak — thay đổi cấu hình realm/user/role qua Admin API, SR-12), kms_audit (audit device Vault), digest (digester ký / ký lỗi một digest), chain_anomaly (digester thấy chuỗi bất thường: thiếu seq, dòng hỏng), chain_start (Vector mở một epoch mới của hash chain).",
       "type": "string",
-      "enum": ["gateway_access", "authz_decision", "policy_decision", "backend_request", "idp_event"]
+      "enum": ["gateway_access", "authz_decision", "policy_decision", "backend_request", "idp_event", "idp_admin_event", "kms_audit", "digest", "chain_anomaly", "chain_start"]
     },
     "profile": {
       "x-sources": ["envoy", "auth-svc"],
@@ -394,9 +395,9 @@
     "response_code_details": {
       "x-sources": ["envoy"],
       "x-status": "week8",
-      "description": "Chi tiết của Envoy cho mã HTTP (via_upstream, ext_authz_denied, jwt_authn_access_denied{…}).",
+      "description": "Chi tiết của Envoy cho mã HTTP (via_upstream, ext_authz_denied, jwt_authn_access_denied{…}; có thể chứa dấu nháy đơn: Jwks_doesn't_have_key_to_match_kid_or_alg).",
       "type": ["string", "null"],
-      "pattern": "^[A-Za-z0-9_.{}\\[\\],:=/-]{1,128}$"
+      "pattern": "^[A-Za-z0-9_.{}\\[\\],:=/'-]{1,128}$"
     },
     "tls_version": {
       "x-sources": ["envoy"],
@@ -411,6 +412,114 @@
       "description": "Cipher suite của kết nối client → gateway.",
       "type": ["string", "null"],
       "pattern": "^[A-Z0-9_-]{1,64}$"
+    },
+    "kms_path": {
+      "x-sources": ["vault"],
+      "x-status": "week9",
+      "description": "Đường dẫn API Vault của thao tác (ví dụ transit/sign/siem-digest, transit/encrypt/pii-enc, sys/policies/acl/digester). Tên khoá nằm trong đường dẫn; không có giá trị bí mật nào.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_./-]{1,128}$"
+    },
+    "kms_operation": {
+      "x-sources": ["vault"],
+      "x-status": "week9",
+      "description": "Thao tác Vault: create, read, update, delete, list…",
+      "type": ["string", "null"],
+      "pattern": "^[a-z-]{1,24}$"
+    },
+    "kms_client": {
+      "x-sources": ["vault"],
+      "x-status": "week9",
+      "description": "display_name của token đã gọi Vault: token-digester, token-profile-api, root. S9: root hay token lạ dùng khoá là bất thường.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_.@-]{1,64}$"
+    },
+    "kms_policies": {
+      "x-sources": ["vault"],
+      "x-status": "week9",
+      "description": "Policy gắn với token đã gọi, nối bằng dấu phẩy (digester / profile-api / root).",
+      "type": ["string", "null"],
+      "pattern": "^[a-z0-9_,-]{1,128}$"
+    },
+    "kms_key_version": {
+      "x-sources": ["vault", "digester"],
+      "x-status": "week9",
+      "description": "Version khoá Transit đã dùng (từ phản hồi của Vault / tiền tố vault:vN: của chữ ký). Xoay khoá → số tăng (SR-08, RP5).",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "digest_seq": {
+      "x-sources": ["digester"],
+      "x-status": "week9",
+      "description": "Số thứ tự của digest (tăng dần, không trùng). Thiếu một số = một digest bị xoá (H9).",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "digest_epoch": {
+      "x-sources": ["digester"],
+      "x-status": "week9",
+      "description": "chain_epoch mà digest (hoặc bất thường) này nói tới.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$"
+    },
+    "digest_first_seq": {
+      "x-sources": ["digester"],
+      "x-status": "week9",
+      "description": "digest: chain_seq đầu tiên digest phủ. chain_anomaly: seq đầu của khoảng bất thường.",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "digest_last_seq": {
+      "x-sources": ["digester"],
+      "x-status": "week9",
+      "description": "digest: chain_seq cuối cùng digest phủ (đầu chuỗi H tại seq này đã được ký). chain_anomaly: seq cuối của khoảng bất thường.",
+      "type": ["integer", "null"],
+      "minimum": 1
+    },
+    "admin_resource_type": {
+      "x-sources": ["keycloak"],
+      "x-status": "week9",
+      "description": "Sự kiện quản trị Keycloak: loại tài nguyên bị đổi (REALM_ROLE_MAPPING, USER, CLIENT, REALM_ROLE…). H4: REALM_ROLE_MAPPING = gán/gỡ role.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Z_]{1,48}$"
+    },
+    "admin_resource_path": {
+      "x-sources": ["keycloak"],
+      "x-status": "week9",
+      "description": "Đường dẫn tài nguyên quản trị đã đổi UUID thành {id} (ví dụ users/{id}/role-mappings/realm) — không chứa định danh.",
+      "type": ["string", "null"],
+      "pattern": "^[A-Za-z0-9_{}/.-]{1,128}$"
+    },
+    "admin_target_hash": {
+      "x-sources": ["keycloak"],
+      "x-status": "week9",
+      "description": "User bị tác động bởi thao tác quản trị, giả danh bằng CÙNG công thức với principal_hash (HMAC-SHA256(khoá, \"principal:\" ‖ sub)) — nối được với các sự kiện sau đó của chính user đó (H4).",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "chain_epoch": {
+      "x-sources": ["vector"],
+      "x-status": "week9",
+      "x-stage": "chain",
+      "description": "Epoch của hash chain = thời điểm Vector khởi động (UTC) + 32 bit ngẫu nhiên. Đặt SAU bước seal (transform Lua chain_seq); không nguồn log nào tự đặt được (allow-list của seal bỏ trường này).",
+      "type": "string",
+      "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$"
+    },
+    "chain_seq": {
+      "x-sources": ["vector"],
+      "x-status": "week9",
+      "x-stage": "chain",
+      "description": "Số thứ tự liên tục trong epoch, bắt đầu từ 1 (sự kiện chain_start). Thiếu một số = sự kiện bị xoá khỏi SIEM (H9, S10).",
+      "type": "integer",
+      "minimum": 1
+    },
+    "event_hash": {
+      "x-sources": ["vector"],
+      "x-status": "week9",
+      "x-stage": "chain",
+      "description": "SHA-256 (hex) của JSON sự kiện không kể chính trường này, khoá sắp xếp, không khoảng trắng — đúng byte Vector gửi OpenSearch. digester nối H_i = SHA-256(H_{i-1} ‖ event_hash_i) và ký đầu chuỗi (SR-09, M6, M7).",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
     }
   }
 }

@@ -45,10 +45,11 @@ for s in opensearch vector; do
 done
 members=$(docker network inspect topic09-telemetry -f '{{range .Containers}}{{.Name}} {{end}}' 2>/dev/null | tr ' ' '\n' | sed -E 's/^topic09-lab-//; s/-[0-9]+$//' | grep . | sort | tr '\n' ' ')
 internal=$(docker network inspect topic09-telemetry -f '{{.Internal}}' 2>/dev/null)
-if [ "$members" = "opensearch vector " ] && [ "$internal" = true ]; then
-  ok "mạng topic09-telemetry (internal) chỉ có opensearch + vector"
+# Tuần 9: digester vào mạng này để ghi digest (ontology triển khai) — vẫn so khớp đúng danh sách.
+if [ "$members" = "digester opensearch vector " ] && [ "$internal" = true ]; then
+  ok "mạng topic09-telemetry (internal) chỉ có digester + opensearch + vector"
 else
-  bad "mạng topic09-telemetry: thành viên '$members', internal=$internal (muốn 'opensearch vector', true)"
+  bad "mạng topic09-telemetry: thành viên '$members', internal=$internal (muốn 'digester opensearch vector', true)"
 fi
 if curl -fsS --max-time 2 http://localhost:9200 >/dev/null 2>&1; then bad "OpenSearch gọi thẳng được từ host"; else ok "OpenSearch KHÔNG gọi thẳng được từ host"; fi
 dyn=$(os 'http://127.0.0.1:9200/topic09-events/_mapping' | python3 -c 'import json,sys; m=json.load(sys.stdin)["topic09-events"]["mappings"]; print(m.get("dynamic"), len(m["properties"]))' 2>/dev/null)

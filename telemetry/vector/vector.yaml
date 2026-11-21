@@ -1,16 +1,29 @@
-# Vector — đường ống telemetry của lab Topic 09 (tuần 8 T6). Kiểm cú pháp:  make vector-validate
+# Vector — đường ống telemetry của lab Topic 09 (tuần 8 T6, tuần 9 T5). Kiểm:  make vector-validate
 #
-#   5 nguồn (log stdout/stderr của container, đọc qua Docker)
-#     src_envoy · src_auth_svc · src_opa · src_backend (orders-api + profile-api) · src_keycloak
+#   7 nguồn
+#     log container (Docker): src_envoy · src_auth_svc · src_opa · src_backend (orders-api +
+#                             profile-api) · src_keycloak · src_digester (tuần 9)
+#     file:                   src_vault_audit — audit device của Vault (tuần 9). KHÔNG đọc stdout
+#                             của Vault dev: nó in root token lúc khởi động (luật telemetry).
 #        │
-#        ▼  norm_*   mỗi nguồn một bước: chỉ nhận dòng JSON là SỰ KIỆN BẢO MẬT (log vận hành,
-#        │           /healthz bị bỏ), đổi về tên trường của telemetry/schema.json
-#        ▼  seal     bước chung cuối cùng — mọi sự kiện đều phải đi qua:
-#        │             1. giả danh: principal → principal_hash, aud → aud_hash (HMAC-SHA256)
-#        │             2. allow-list: chỉ giữ trường có trong schema
-#        │             3. kiểm dạng và che giá trị giống token / khoá / mã uỷ quyền
-#        ▼
-#      OpenSearch  index topic09-events (mapping "dynamic: strict" — lớp chặn thứ hai)
+#        ▼  norm_*      mỗi nguồn một bước: chỉ nhận dòng JSON là SỰ KIỆN BẢO MẬT (log vận hành,
+#        │              /healthz bị bỏ), đổi về tên trường của telemetry/schema.json
+#        ▼  seal        bước chung — mọi sự kiện đều phải đi qua:
+#        │                1. giả danh: principal → principal_hash, aud → aud_hash (HMAC-SHA256)
+#        │                2. allow-list: chỉ giữ trường có trong schema (trừ 3 trường chuỗi bên dưới)
+#        │                3. kiểm dạng và che giá trị giống token / khoá / mã uỷ quyền
+#        ▼  chain_seq   (Lua, tuần 9) đánh số: chain_epoch (mỗi lần Vector khởi động một giá trị)
+#        │              + chain_seq tăng dần; mở mỗi epoch bằng một sự kiện chain_start
+#        ▼  chain_hash  (VRL, tuần 9) event_hash = SHA-256 của chính sự kiện (JSON khoá sắp xếp)
+#        │
+#        ├──▶ OpenSearch   index topic09-events (mapping "dynamic: strict" — lớp chặn thứ hai)
+#        └──▶ file chuỗi   /var/lib/vector-chain/<epoch>.jsonl: chỉ (chain_epoch, chain_seq,
+#                          event_hash). digester đọc file này — KHÔNG đọc OpenSearch — để nối
+#                          H_i = SHA-256(H_{i-1} ‖ event_hash_i) và ký digest bằng Vault Transit.
+#
+# Vì sao chuỗi tách làm hai nơi (quyết định 2026-11-21): H_i cần nhớ H_{i-1}. Trong Vector chỉ
+# Lua giữ được trạng thái giữa các sự kiện, mà Lua không có SHA-256 (tự viết = tự cài thuật toán);
+# VRL có SHA-256 nhưng không có trạng thái. Nên: Lua chỉ đếm, VRL băm từng sự kiện, digester nối.
 #
 # Ba điều về bảo mật (SR-10, TB5):
 #   - "Nguồn" của sự kiện là CONTAINER mà Docker đọc log, không phải trường "service" trong
@@ -44,6 +57,16 @@ sources:
   src_keycloak:
     type: docker_logs
     include_containers: ["topic09-lab-keycloak-"]
+  src_digester:
+    type: docker_logs
+    include_containers: ["topic09-lab-digester-"]
+  # Audit device của Vault (kms/setup.sh) ghi file JSON vào volume vault-audit; Vector mount ro.
+  # Vị trí đã đọc (checkpoint) lưu trong data_dir — volume vector-data — nên Vector khởi động lại
+  # không đọc lại từ đầu (không nhân đôi sự kiện) và không bỏ sót dòng ghi trong lúc dừng.
+  src_vault_audit:
+    type: file
+    include: ["/vault-audit/audit.log"]
+    read_from: beginning
 
 transforms:
   # ========================================================================== Envoy (PEP)
@@ -218,7 +241,36 @@ transforms:
 
       kv = parse_key_value(to_string(r.message) ?? "", key_value_delimiter: "=", field_delimiter: ",") ?? {}
       typ = to_string(kv.type) ?? ""
-      if typ == "" { abort }   # sự kiện quản trị (operationType=…) chưa đưa vào SIEM ở tuần 8
+      op = to_string(kv.operationType) ?? ""
+      if typ == "" && op == "" { abort }
+
+      # --- Sự kiện QUẢN TRỊ (tuần 9 T6; SR-12, T11, RP7): ai đổi gì trong realm (role, user, client…).
+      #   operationType="CREATE", realmName="master", clientId="<uuid nội bộ>", userId="<admin>",
+      #   ipAddress=…, resourceType="REALM_ROLE_MAPPING", resourcePath="users/<uuid>/role-mappings/realm"
+      # Không lấy ipAddress, clientId (UUID nội bộ, không phải tên client), representation (đã tắt
+      # trong realm: adminEventsDetailsEnabled=false). UUID trong resourcePath đổi thành {id}; UUID
+      # của USER bị tác động giữ tạm ở admin_target (khoá thô) để seal băm thành admin_target_hash.
+      if op != "" {
+        path = to_string(kv.resourcePath) ?? ""
+        m = parse_regex(path, r'^users/(?P<id>[0-9a-fA-F-]{36})(/|$)') ?? {}
+        tmpl = replace(path, r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}', "{id}")
+        auid = to_string(kv.userId) ?? ""
+        . = {
+          "source": "keycloak",
+          "event_type": "idp_admin_event",
+          "received": .timestamp,
+          "event_time": r.timestamp,
+          "idp_event": "ADMIN_" + upcase(op),
+          "idp_realm": kv.realmName,
+          "decision": "allow",
+          "decision_reason": "ok",
+          "principal": auid,
+          "admin_resource_type": kv.resourceType,
+          "admin_resource_path": tmpl,
+          "admin_target": m.id
+        }
+        return .
+      }
 
       uid = to_string(kv.userId) ?? ""
       if uid == "null" { uid = "" }
@@ -244,10 +296,82 @@ transforms:
         "grant_type": kv.grant_type
       }
 
+  # ========================================================================== Vault (KMS) — tuần 9
+  # Audit device: mỗi request tới Vault ghi 2 dòng (type=request, type=response). Chỉ lấy dòng
+  # response (có kết quả). Vault đã HMAC mọi chuỗi bí mật (token, input, signature, plaintext,
+  # ciphertext) trước khi ghi; ở đây còn bỏ hẳn các khối đó — chỉ giữ ai (display_name, policy),
+  # làm gì (path, operation), kết quả. Không lấy remote_address (IP bridge Docker), không lấy
+  # client_token/accessor (dù đã HMAC). Bảng nghĩa các trường: kms/README.md.
+  norm_vault:
+    type: remap
+    inputs: [src_vault_audit]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      if r.type != "response" { abort }
+      req = object(r.request) ?? {}
+      auth = object(r.auth) ?? {}
+      path = to_string(req.path) ?? ""
+      if path == "sys/health" { abort }   # healthcheck của Docker, không phải thao tác khoá
+
+      e = to_string(r.error) ?? ""
+      decision = "allow"
+      reason = "ok"
+      if e != "" {
+        decision = "deny"
+        reason = if contains(e, "permission denied") { "permission_denied" } else if contains(e, "invalid token") { "invalid_token" } else { "vault_error" }
+      }
+      pols = filter(array(auth.token_policies) ?? array(auth.policies) ?? []) -> |_i, v| { is_string(v) }
+      # Một lần gọi Transit = một thao tác khoá (mục 13.1 "kms_calls"); sys/, auth/ không tính.
+      calls = 0
+      if starts_with(path, "transit/") { calls = 1 }
+
+      . = {
+        "source": "vault",
+        "event_type": "kms_audit",
+        "received": .timestamp,
+        "event_time": r.time,
+        "decision": decision,
+        "decision_reason": reason,
+        "kms_path": path,
+        "kms_operation": req.operation,
+        "kms_client": auth.display_name,
+        "kms_policies": join(pols, ",") ?? null,
+        "kms_calls": calls
+      }
+      # Không dùng to_int(…) ?? null: to_int(null) trả 0, không lỗi (unit test bắt được 21/11).
+      if is_integer(r.response.data.key_version) { .kms_key_version = r.response.data.key_version }
+
+  # ========================================================================== digester — tuần 9
+  # Log slog JSON của digester (telemetry/digester): digest đã ký / ký lỗi, và bất thường của chuỗi.
+  norm_digester:
+    type: remap
+    inputs: [src_digester]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      r, err = parse_json(.message)
+      if err != null || !is_object(r) { abort }
+      r = object!(r)
+      m = to_string(r.msg) ?? ""
+      et = if m == "digest_signed" || m == "digest_failed" { "digest" } else if starts_with(m, "chain_") { "chain_anomaly" } else { "" }
+      if et == "" { abort }   # "starting", "listening"… là log vận hành
+
+      keep = ["event_time", "decision", "decision_reason", "kms_calls", "kms_key_version",
+              "digest_seq", "digest_epoch", "digest_first_seq", "digest_last_seq"]
+      ev = filter(r) -> |k, _v| { includes(keep, k) }
+      ev.source = "digester"
+      ev.event_type = et
+      ev.received = .timestamp
+      . = ev
+
   # ========================================================================== seal — bước chung
   seal:
     type: remap
-    inputs: [norm_envoy, norm_auth_svc, norm_opa, norm_backend, norm_keycloak]
+    inputs: [norm_envoy, norm_auth_svc, norm_opa, norm_backend, norm_keycloak, norm_vault, norm_digester]
     drop_on_error: true
     drop_on_abort: true
     source: |
@@ -275,6 +399,11 @@ transforms:
       if p != "" { .principal_hash = encode_base16(hmac("principal:" + p, key)) }
       a = to_string(.aud) ?? ""
       if a != "" { .aud_hash = encode_base16(hmac("aud:" + a, key)) }
+      #   admin_target (sự kiện quản trị Keycloak, tuần 9): CỐ Ý dùng chung tiền tố "principal:" —
+      #   admin_target_hash của "dave bị gán role" bằng đúng principal_hash trong các request sau đó
+      #   của dave, nên hunt H4 nối được hai việc mà SIEM không giữ UUID thật.
+      t = to_string(.admin_target) ?? ""
+      if t != "" { .admin_target_hash = encode_base16(hmac("principal:" + t, key)) }
 
       # --- 3. authn_method: suy từ client_id theo cấu hình realm (idp/realm-topic09.json) —
       #        mỗi client chỉ bật một luồng. Đổi client trong realm thì sửa bảng này.
@@ -295,7 +424,12 @@ transforms:
                  "backend_redacted_fields", "idp_event", "idp_realm", "grant_type",
                  "pipeline_redacted", "subject_roles", "subject_dept", "subject_tier",
                  "listener_port", "upstream_cluster", "response_flags", "response_code_details",
-                 "tls_version", "tls_cipher"]
+                 "tls_version", "tls_cipher",
+                 "kms_path", "kms_operation", "kms_client", "kms_policies", "kms_key_version",
+                 "digest_seq", "digest_epoch", "digest_first_seq", "digest_last_seq",
+                 "admin_resource_type", "admin_resource_path", "admin_target_hash"]
+      # chain_epoch, chain_seq, event_hash KHÔNG có ở đây: chỉ chain_seq/chain_hash phía sau được
+      # đặt chúng. Một dòng log tự ghi "chain_seq": 1 sẽ bị bỏ ngay tại đây.
       . = filter(.) -> |k, _v| { includes(allowed, k) }
 
       # --- 5. Kiểm dạng hai trường mà phía gọi điều khiển được.
@@ -328,14 +462,73 @@ transforms:
       if encode_json(.) != before { flagged = true }
       if flagged { .pipeline_redacted = true }
 
-      # --- 8. Bỏ trường null: thiếu trường = null (schema cho phép), tài liệu gọn hơn.
-      . = compact(., null: true, string: false, object: false, array: false)
+      # --- 8. Bỏ trường null: thiếu trường = null (schema cho phép), tài liệu gọn hơn. Bỏ cả mảng
+      #        rỗng: đi qua Lua (chain_seq) mảng rỗng [] biến thành object {} — mapping strict sẽ
+      #        từ chối sự kiện (đã thử 21/11). Schema hiện không có trường mảng; đây là chặn sẵn.
+      . = compact(., null: true, string: false, object: false, array: true)
+
+  # ========================================================================== hash chain — tuần 9
+  # Đánh số liên tục. Lua giữ biến giữa các sự kiện (VRL thì không). Transform Lua chạy tuần tự
+  # nên thứ tự Lua thấy chính là thứ tự của chuỗi.
+  #   chain_epoch = thời điểm Vector khởi động (UTC) + 32 bit ngẫu nhiên: Vector khởi động lại thì
+  #                 bộ đếm về 0 nhưng epoch mới → không trùng (epoch, seq) với lần chạy trước.
+  #   chain_start = sự kiện đầu tiên của mỗi epoch (seq 1): khoảng trống log do VECTOR DỪNG trông
+  #                 khác khoảng trống do log BỊ XOÁ (H9, S10) — chain_seq liền mạch trong một epoch.
+  # math.random chỉ để epoch khó trùng, không phải bí mật (Lua 5.4 tự gieo seed ngẫu nhiên).
+  chain_seq:
+    type: lua
+    version: "2"
+    inputs: [seal]
+    source: |
+      local epoch = nil
+      local seq = 0
+      function chain_init(emit)
+        epoch = os.date("!%Y%m%dT%H%M%SZ") .. "-" .. string.format("%08x", math.random(0, 0xffffffff))
+        seq = 1
+        emit({log = {source = "vector", event_type = "chain_start",
+                     event_time = os.date("!%Y-%m-%dT%H:%M:%SZ"), chain_epoch = epoch, chain_seq = seq}})
+      end
+      function chain_process(event, emit)
+        seq = seq + 1
+        event.log.chain_epoch = epoch
+        event.log.chain_seq = seq
+        emit(event)
+      end
+    hooks:
+      init: chain_init
+      process: chain_process
+
+  # event_hash = SHA-256(JSON của sự kiện, khoá sắp xếp theo byte, không khoảng trắng) — đúng chuỗi
+  # byte mà sink gửi cho OpenSearch, nên người kiểm (verify-chain, tuần 10) tính lại được từ
+  # _source. Băm SAU khi Lua đánh số: event_hash phủ cả chain_epoch/chain_seq → đổi số thứ tự của
+  # một sự kiện trong OpenSearch là lệch hash ngay.
+  chain_hash:
+    type: remap
+    inputs: [chain_seq]
+    drop_on_error: true
+    drop_on_abort: true
+    source: |
+      del(.event_hash)
+      .event_hash = sha2(encode_json(.), variant: "SHA-256")
 
 # ============================================================================ SIEM
 sinks:
+  # Nhánh thứ hai của chuỗi: chỉ 3 trường, mỗi epoch một file, trong volume siem-chain (chỉ Vector
+  # ghi, digester mount ro). File này nằm ngoài mạng telemetry nên người sửa được OpenSearch không
+  # sửa được nó — đó là chỗ digester lấy đầu chuỗi (luật telemetry: không đọc OpenSearch).
+  chain_file:
+    type: file
+    inputs: [chain_hash]
+    path: "/var/lib/vector-chain/{{ chain_epoch }}.jsonl"
+    encoding:
+      codec: json
+      only_fields: ["chain_epoch", "chain_seq", "event_hash"]
+    framing:
+      method: newline_delimited
+
   siem:
     type: elasticsearch          # OpenSearch dùng chung giao thức bulk
-    inputs: [seal]
+    inputs: [chain_hash]
     endpoints: ["http://opensearch:9200"]   # mạng topic09-telemetry (internal), không TLS — quyết định 2026-11-13
     api_version: v8              # không gửi _type (OpenSearch 2+ đã bỏ mapping type)
     mode: bulk
