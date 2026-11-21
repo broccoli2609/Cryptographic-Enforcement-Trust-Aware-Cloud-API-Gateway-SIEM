@@ -1,0 +1,136 @@
+# digester unit test — 2026-11-21 (go test -v ./...)
+?   	topic09-lab/telemetry/digester/cmd/digester	[no test files]
+=== RUN   TestKnownAnswer
+--- PASS: TestKnownAnswer (0.00s)
+=== RUN   TestGenesisDiffersPerEpoch
+--- PASS: TestGenesisDiffersPerEpoch (0.00s)
+=== RUN   TestOrdering
+=== RUN   TestOrdering/đúng_thứ_tự
+=== RUN   TestOrdering/đảo_2_và_3
+=== RUN   TestOrdering/ngược_hoàn_toàn
+--- PASS: TestOrdering (0.01s)
+    --- PASS: TestOrdering/đúng_thứ_tự (0.01s)
+    --- PASS: TestOrdering/đảo_2_và_3 (0.00s)
+    --- PASS: TestOrdering/ngược_hoàn_toàn (0.00s)
+=== RUN   TestPartialLine
+--- PASS: TestPartialLine (0.00s)
+=== RUN   TestBadRecords
+=== RUN   TestBadRecords/không_phải_JSON
+=== RUN   TestBadRecords/sai_epoch
+=== RUN   TestBadRecords/hash_chữ_hoa
+=== RUN   TestBadRecords/hash_ngắn
+=== RUN   TestBadRecords/seq_=_0
+=== RUN   TestBadRecords/seq_âm
+=== RUN   TestBadRecords/trường_lạ
+=== RUN   TestBadRecords/dòng_quá_dài
+--- PASS: TestBadRecords (0.01s)
+    --- PASS: TestBadRecords/không_phải_JSON (0.00s)
+    --- PASS: TestBadRecords/sai_epoch (0.00s)
+    --- PASS: TestBadRecords/hash_chữ_hoa (0.00s)
+    --- PASS: TestBadRecords/hash_ngắn (0.00s)
+    --- PASS: TestBadRecords/seq_=_0 (0.00s)
+    --- PASS: TestBadRecords/seq_âm (0.00s)
+    --- PASS: TestBadRecords/trường_lạ (0.00s)
+    --- PASS: TestBadRecords/dòng_quá_dài (0.00s)
+=== RUN   TestDuplicateSeq
+=== RUN   TestDuplicateSeq/trùng_seq_đã_nối
+=== RUN   TestDuplicateSeq/trùng_seq_đang_chờ
+--- PASS: TestDuplicateSeq (0.01s)
+    --- PASS: TestDuplicateSeq/trùng_seq_đã_nối (0.01s)
+    --- PASS: TestDuplicateSeq/trùng_seq_đang_chờ (0.00s)
+=== RUN   TestGap
+--- PASS: TestGap (0.00s)
+=== RUN   TestTwoGapsAtOnce
+--- PASS: TestTwoGapsAtOnce (0.00s)
+=== RUN   TestTruncatedFile
+--- PASS: TestTruncatedFile (0.00s)
+=== RUN   TestExpectHead
+=== RUN   TestExpectHead/khớp
+=== RUN   TestExpectHead/file_đã_bị_sửa_sau_khi_ký
+--- PASS: TestExpectHead (0.00s)
+    --- PASS: TestExpectHead/khớp (0.00s)
+    --- PASS: TestExpectHead/file_đã_bị_sửa_sau_khi_ký (0.00s)
+=== RUN   TestIgnoresForeignFiles
+--- PASS: TestIgnoresForeignFiles (0.00s)
+PASS
+ok  	topic09-lab/telemetry/digester/internal/chain	(cached)
+=== RUN   TestPayloadBytesStable
+--- PASS: TestPayloadBytesStable (0.00s)
+=== RUN   TestVerify
+=== RUN   TestVerify/nguyên_vẹn
+=== RUN   TestVerify/sửa_head_(trường)_nhưng_giữ_signed_payload
+=== RUN   TestVerify/sửa_last_seq
+=== RUN   TestVerify/sửa_signed_payload_cho_khớp_trường_mới_nhưng_giữ_chữ_ký
+=== RUN   TestVerify/thay_public_key_bằng_khoá_khác
+=== RUN   TestVerify/key_version_lệch_tiền_tố_chữ_ký
+=== RUN   TestVerify/chữ_ký_không_có_tiền_tố_vault:
+--- PASS: TestVerify (0.01s)
+    --- PASS: TestVerify/nguyên_vẹn (0.00s)
+    --- PASS: TestVerify/sửa_head_(trường)_nhưng_giữ_signed_payload (0.00s)
+    --- PASS: TestVerify/sửa_last_seq (0.00s)
+    --- PASS: TestVerify/sửa_signed_payload_cho_khớp_trường_mới_nhưng_giữ_chữ_ký (0.00s)
+    --- PASS: TestVerify/thay_public_key_bằng_khoá_khác (0.00s)
+    --- PASS: TestVerify/key_version_lệch_tiền_tố_chữ_ký (0.00s)
+    --- PASS: TestVerify/chữ_ký_không_có_tiền_tố_vault: (0.00s)
+=== RUN   TestLedgerAppendAndReopen
+--- PASS: TestLedgerAppendAndReopen (0.05s)
+=== RUN   TestLedgerRejectsBrokenLink
+=== RUN   TestLedgerRejectsBrokenLink/nhảy_digest_seq_(bỏ_qua_#2)
+=== RUN   TestLedgerRejectsBrokenLink/prev_signature_sai
+=== RUN   TestLedgerRejectsBrokenLink/chữ_ký_hỏng
+--- PASS: TestLedgerRejectsBrokenLink (0.05s)
+    --- PASS: TestLedgerRejectsBrokenLink/nhảy_digest_seq_(bỏ_qua_#2) (0.01s)
+    --- PASS: TestLedgerRejectsBrokenLink/prev_signature_sai (0.02s)
+    --- PASS: TestLedgerRejectsBrokenLink/chữ_ký_hỏng (0.01s)
+=== RUN   TestLedgerTamperedOnDisk
+=== RUN   TestLedgerTamperedOnDisk/xoá_digest_giữa
+=== RUN   TestLedgerTamperedOnDisk/sửa_head_của_digest_#2
+=== RUN   TestLedgerTamperedOnDisk/dòng_rác
+--- PASS: TestLedgerTamperedOnDisk (0.01s)
+    --- PASS: TestLedgerTamperedOnDisk/xoá_digest_giữa (0.00s)
+    --- PASS: TestLedgerTamperedOnDisk/sửa_head_của_digest_#2 (0.00s)
+    --- PASS: TestLedgerTamperedOnDisk/dòng_rác (0.00s)
+PASS
+ok  	topic09-lab/telemetry/digester/internal/digest	(cached)
+=== RUN   TestFlushInOrderWithCreate
+--- PASS: TestFlushInOrderWithCreate (0.01s)
+=== RUN   TestFlushStopsOnError
+--- PASS: TestFlushStopsOnError (0.00s)
+=== RUN   TestFlushConflict
+--- PASS: TestFlushConflict (0.00s)
+=== RUN   TestQueueBounded
+--- PASS: TestQueueBounded (0.00s)
+PASS
+ok  	topic09-lab/telemetry/digester/internal/store	(cached)
+=== RUN   TestSignOK
+--- PASS: TestSignOK (0.01s)
+=== RUN   TestSignFailures
+=== RUN   TestSignFailures/Vault_từ_chối_(403)
+=== RUN   TestSignFailures/Vault_lỗi_(500)
+=== RUN   TestSignFailures/phản_hồi_sai_dạng
+=== RUN   TestSignFailures/chữ_ký_bị_sửa_1_byte
+=== RUN   TestSignFailures/ký_bằng_khoá_khác_khoá_đã_công_bố
+=== RUN   TestSignFailures/version_khoá_chưa_có_trong_file_public_key
+=== RUN   TestSignFailures/Vault_chậm_quá_timeout
+--- PASS: TestSignFailures (0.34s)
+    --- PASS: TestSignFailures/Vault_từ_chối_(403) (0.01s)
+    --- PASS: TestSignFailures/Vault_lỗi_(500) (0.00s)
+    --- PASS: TestSignFailures/phản_hồi_sai_dạng (0.00s)
+    --- PASS: TestSignFailures/chữ_ký_bị_sửa_1_byte (0.01s)
+    --- PASS: TestSignFailures/ký_bằng_khoá_khác_khoá_đã_công_bố (0.00s)
+    --- PASS: TestSignFailures/version_khoá_chưa_có_trong_file_public_key (0.01s)
+    --- PASS: TestSignFailures/Vault_chậm_quá_timeout (0.31s)
+=== RUN   TestSignMissingFiles
+=== RUN   TestSignMissingFiles/không_có_file_token
+=== RUN   TestSignMissingFiles/không_có_file_public_key
+=== RUN   TestSignMissingFiles/Vault_không_chạy
+--- PASS: TestSignMissingFiles (0.01s)
+    --- PASS: TestSignMissingFiles/không_có_file_token (0.00s)
+    --- PASS: TestSignMissingFiles/không_có_file_public_key (0.00s)
+    --- PASS: TestSignMissingFiles/Vault_không_chạy (0.00s)
+=== RUN   TestEmptyTokenFile
+--- PASS: TestEmptyTokenFile (0.00s)
+=== RUN   TestNoRedirect
+--- PASS: TestNoRedirect (0.01s)
+PASS
+ok  	topic09-lab/telemetry/digester/internal/vault	(cached)

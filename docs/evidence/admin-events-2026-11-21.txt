@@ -1,0 +1,12 @@
+== Gán rồi gỡ role manager cho alice (Admin REST, tài khoản admin của realm master)
+  [PASS] đã gán manager cho alice
+  [PASS] đã gỡ lại — realm về trạng thái ban đầu
+== SIEM
+  [PASS] SIEM có 2 sự kiện quản trị đúng thứ tự: ADMIN_CREATE,ADMIN_DELETE
+  [PASS] đường dẫn đã ẩn UUID: users/{id}/role-mappings/realm
+  [PASS] admin_target_hash = HMAC-SHA256(khoá, "principal:" ‖ sub của alice) — nối được với principal_hash (H4)
+  [PASS] người thao tác (admin) có principal_hash
+  [PASS] không UUID / IP / khoá thô admin_target trong SIEM
+  [PASS] sự kiện quản trị nằm trong hash chain (chain_seq + event_hash)
+
+Kết quả: 0 FAIL

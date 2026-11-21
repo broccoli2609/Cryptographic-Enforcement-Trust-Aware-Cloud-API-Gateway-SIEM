@@ -16,7 +16,8 @@ Telemetry và SIEM: [`telemetry/README.md`](telemetry/README.md).
 | `orders-api`, `profile-api` (Go) | kiểm quyền mức đối tượng (`owner_id`, manager cùng phòng) và mức thuộc tính (`salary_band` chỉ HR, chặn mass assignment); ghi `backend_object_authz` vào log; không mở port ra host |
 | Vector 0.60.0 | đọc log của 6 container (5 nguồn), đổi về `telemetry/schema.json` (27 trường mục 13.1 đề bài), băm HMAC định danh, chỉ giữ trường trong schema, che giá trị dạng token; không mở port |
 | OpenSearch 3.8.0 (SIEM) | index `topic09-events`, mapping `dynamic: strict` sinh từ schema; không mở port, mạng riêng chỉ chung với Vector |
-| Vault, digester, hash chain | tuần 9 |
+| Vault 2.1.2 (dev, Transit) + digester (Go) | tuần 9: khoá `siem-digest` (ed25519) ký digest của hash chain SIEM, khoá `pii-enc` (aes256-gcm96, dùng từ tuần 10); mạng `topic09-kms` internal, không port — `kms/README.md` |
+| Hash chain + 6 hunt | tuần 9: `telemetry/README.md` mục 8, `detections/README.md` |
 
 ## Chạy lần đầu
 
@@ -24,9 +25,10 @@ Telemetry và SIEM: [`telemetry/README.md`](telemetry/README.md).
 ./scripts/check-env.sh          # Docker, Go, perf đã đủ chưa
 cp .env.example .env            # rồi đặt KC_ADMIN_PASSWORD, LAB_USER_PASSWORD (ngẫu nhiên), SIEM_HMAC_KEY (openssl rand -hex 32)
 ./scripts/gen-certs.sh          # CA nội bộ + cert TLS cho Envoy → secrets/tls/ (không commit)
+./scripts/gen-vault-secrets.sh  # 3 token Vault ngẫu nhiên → secrets/vault/ (không commit; Docker secrets)
 docker compose up -d --build
 ./scripts/batch-worker-key.sh   # khoá batch-worker → secrets/batch-worker/, đăng ký cert vào Keycloak
-./scripts/smoke-test.sh         # 26 mục PASS là đạt (tuần 8)
+./scripts/smoke-test.sh         # 32 mục PASS là đạt (tuần 9)
 ```
 
 Gọi API qua gateway (token của alice qua Auth Code + PKCE):
@@ -44,7 +46,7 @@ Keycloak admin console: http://localhost:8080 (user/mật khẩu trong `.env`).
 |---|---|
 | `make up` / `make down` | bật / tắt lab (dữ liệu Keycloak giữ trong volume) |
 | `make ps`, `make logs` | trạng thái, log |
-| `make test` | unit test của backend và auth-svc |
+| `make test` | unit test của backend, auth-svc, digester |
 | `make pkce`, `make pkce-negative` | Auth Code + PKCE (trace) / 7 ca PKCE sai |
 | `make cc` | Client Credentials + `private_key_jwt` + 5 ca sai |
 | `make tls` | gateway chỉ nói TLS 1.3 |
@@ -55,7 +57,13 @@ Keycloak admin console: http://localhost:8080 (user/mật khẩu trong `.env`).
 | `make dpop-login` | Auth Code + PKCE + DPoP (trace, token có `cnf.jkt`) |
 | `make dpop-test` | P2: replay, token bị trộm, proof sai, hạ cấp sang Bearer |
 | `make object-authz-test` | BOLA/BFLA/property-level đầu-cuối, log 2 tầng gateway ↔ backend |
-| `make vector-validate` | cú pháp `vector.yaml` + 21 unit test đường ống + schema ↔ Vector ↔ mapping (không cần lab chạy) |
+| `make vector-validate` | cú pháp `vector.yaml` + 31 unit test đường ống + schema ↔ Vector ↔ mapping (không cần lab chạy) |
+| `make kms-test` | Vault: 2 khoá Transit, policy tách biệt digester / profile-api, audit, chữ ký kiểm được ngoài Vault |
+| `make chain-test` | hash chain + digest ký bằng Vault đầu-cuối, kiểm độc lập, 6 kiểu sửa/xoá, Vault treo (FI-4) |
+| `make digest-now` | bắt digester ký digest ngay |
+| `make admin-event-test` | đổi role một user → sự kiện quản trị Keycloak trong SIEM |
+| `make hunt` / `make hunt-test` | chạy 6 hunt / sinh kịch bản rồi khẳng định hunt bắt được |
+| `make siem-dashboard` | dashboard SIEM tĩnh → `docs/evidence/siem-dashboard-<ngày>.html` |
 | `make schema-test` | log thô của 5 nguồn ↔ `telemetry/schema.json` |
 | `make siem-test` | đường ống đầu-cuối: 5 nguồn → SIEM, HMAC đúng khoá, chèn token, scanner, mapping strict |
 | `make siem-scan` | scanner SR-10: token / khoá / mã uỷ quyền / bí mật / định danh thô trong SIEM và `dataset/` |

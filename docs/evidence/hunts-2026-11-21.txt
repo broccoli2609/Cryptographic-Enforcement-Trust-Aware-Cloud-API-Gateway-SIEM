@@ -1,0 +1,122 @@
+== 0. Lưu lượng bình thường — không hunt nào (H1, H2, H3, H5) được báo
+  [PASS] bình thường: H1 không có phát hiện (0)
+  [PASS] bình thường: H2 không có phát hiện (0)
+  [PASS] bình thường: H3 không có phát hiện (0)
+  [PASS] bình thường: H5 không có phát hiện (0)
+== 1. Kịch bản tấn công
+  S4  dpop-test (replay, token trộm + khoá lạ, hạ cấp): 32 PASS
+  S1/S2 gateway-test P1 (token giả, kid lạ, header hỏng): 19 PASS
+  S6  authz-test (route không đủ role/dept/tier): 25 PASS
+  S7  object-authz-test (BOLA, BFLA, mass assignment): 62 PASS
+  S6  leo quyền: alice /profile/{id} trước = 403, sau khi được gán manager = 404; đã gỡ role
+  [PASS] leo quyền có hiệu lực thật ở gateway (403 → 404)
+  [PASS] tấn công: H1 có phát hiện (2)
+  [PASS] tấn công: H2 có phát hiện (3)
+  [PASS] tấn công: H3 có phát hiện (3)
+  [PASS] tấn công: H4 có phát hiện (5)
+  [PASS] tấn công: H5 có phát hiện (7)
+  [PASS] H1 / gửi lại proof đã dùng (P2): 1 phát hiện
+  [PASS] H2 / proof ký bằng khoá khác khoá gắn token: 1 phát hiện
+  [PASS] H2 / hạ cấp: token DPoP gửi kiểu Bearer / token thường gửi vào P2: 2 phát hiện
+  [PASS] H3 / Envoy chặn: chữ ký sai / kid lạ / header hỏng: 3 phát hiện
+  [PASS] H4 / dò quyền: ≥ 3 lần PDP từ chối cùng principal: 2 phát hiện
+  [PASS] H4 / role của cùng principal thay đổi trong cửa sổ: 1 phát hiện
+  [PASS] H4 / gán/gỡ role qua Admin API (và user đó có hoạt động sau đó): 2 phát hiện
+  [PASS] H5 / BOLA: ≥ 3 lần backend từ chối đối tượng cùng principal: 2 phát hiện
+  [PASS] H5 / BFLA: gọi chức năng không đủ role: 3 phát hiện
+  [PASS] H4 nối được: user vừa được gán role có 5 sự kiện SAU thao tác (admin_target_hash = principal_hash)
+== 2. H9 — sửa/xoá log trên BẢN SAO index
+  bản sao: epoch 20261121T060624Z-1b636c01, seq 1..1635 → 1635 sự kiện
+  [PASS] H9: bản sao nguyên vẹn → băm lại + chữ ký + seq đều sạch (không báo nhầm)
+  đã sửa decision của seq 28 (T1565.001) và xoá seq 29 (T1070) trong bản sao
+  [PASS] H9 phát hiện sự kiện bị sửa (seq 28: event_hash không khớp)
+  [PASS] H9 phát hiện sự kiện bị xoá (seq 29 thiếu trong phần digest đã phủ)
+  [PASS] H9 (truy vấn nhanh, không cần băm lại): epoch có khoảng trống seq
+== 3. H9 trên index THẬT
+  [PASS] SIEM thật: mọi sự kiện đã ký băm lại khớp, chữ ký digest hợp lệ
+  [PASS] SIEM thật: không epoch nào thiếu seq
+  [PASS] SIEM thật: digest mới (< 10 phút), digest_seq liền mạch
+
+---- Chi tiết hunt trên kịch bản tấn công (cửa sổ từ 2026-11-21T06:24:19Z) ----
+Hunt trên index topic09-events, cửa sổ từ 2026-11-21T06:24:19Z (bây giờ 2026-11-21T06:25:05Z)
+
+H1 — Token replay — gửi lại token + DPoP proof đã dùng
+  giả thuyết: Kẻ tấn công bắt được một request P2 (access token + DPoP proof) và gửi lại nguyên văn. Cache jti của auth-svc phải từ chối với proof_status=replay; có replay cho một principal = có người đang dùng lại thông tin bắt được.
+  [gửi lại proof đã dùng (P2)] 1 phát hiện
+      - principal_hash=d4b2f89e20bf…, cnf_jkt=vlE-8UBIrvcj… | 10 sự kiện | 2026-11-21T06:24:21
+  [proof quá hạn (iat ngoài ±30 s) — replay chậm] 1 phát hiện
+      - principal_hash=d4b2f89e20bf… | 2 sự kiện | 2026-11-21T06:24:23
+
+H2 — Sender-binding mismatch — token gắn khoá bị dùng bằng khoá khác / hạ cấp sang Bearer
+  giả thuyết: Kẻ tấn công lấy cắp access token DPoP (cnf.jkt = khoá của nạn nhân) nhưng không có khoá riêng của nạn nhân. Họ (a) ký proof bằng khoá của mình → cnf_jkt ≠ proof_jkt, hoặc (b) bỏ DPoP và gửi token kiểu Bearer sang P1/P2 để né kiểm proof.
+  [proof ký bằng khoá khác khoá gắn token] 1 phát hiện
+      - principal_hash=d4b2f89e20bf…, cnf_jkt=vlE-8UBIrvcj…, proof_jkt=Aho2OS8T75Zh… | 1 sự kiện | 2026-11-21T06:24:21
+  [hạ cấp: token DPoP gửi kiểu Bearer / token thường gửi vào P2] 2 phát hiện
+      - profile=p1, decision_reason=wrong_typ, principal_hash=∅ | 1 sự kiện | 2026-11-21T06:24:24
+      - profile=p2, decision_reason=wrong_typ, principal_hash=∅ | 1 sự kiện | 2026-11-21T06:24:24
+
+H3 — alg/kid bất thường — token giả, chữ ký sai, kid lạ
+  giả thuyết: Kẻ tấn công thử token tự ký (khoá lạ, kid không có trong JWKS), đổi alg (none/HS256/ES256), sửa payload giữ chữ ký cũ, hoặc header hỏng để dò bộ kiểm JWT. Lớp chặn đầu tiên là jwt_authn của Envoy (response_code_details), lớp thứ hai là auth-svc (decision_reason, alg, kid).
+  [Envoy chặn: chữ ký sai / kid lạ / header hỏng] 3 phát hiện
+      - profile=p1, response_code_details=jwt_authn_access_denied{Jwt_verification_fails} | 2 sự kiện | 2026-11-21T06:24:30
+      - profile=p1, response_code_details=jwt_authn_access_denied{Jwks_doesn't_have_key_to_match_kid_or_alg_from_Jwt} | 1 sự kiện | 2026-11-21T06:24:30
+      - profile=p1, response_code_details=jwt_authn_access_denied{Jwt_is_not_in_the_form_of_Header.Payload.Signature_with_two_dots_and_3_sections} | 1 sự kiện | 2026-11-21T06:24:30
+  [auth-svc chặn: alg / kid / chữ ký / crit] 0 phát hiện
+  [alg khác RS256 trong token ĐÃ tới auth-svc] 0 phát hiện
+
+H4 — Leo quyền authz — dò quyền, role đổi, policy đổi, gán role qua Admin API
+  giả thuyết: Người dùng (hoặc kẻ cầm token của họ) dò những route không được phép (nhiều deny liên tiếp ở PDP); sau đó quyền được nâng — role mới trong token (subject_roles đổi), policy bị sửa (policy_version đổi), hoặc admin Keycloak gán role — và quyền mới được dùng ngay.
+  [dò quyền: ≥ 3 lần PDP từ chối cùng principal] 2 phát hiện
+      - principal_hash=d4b2f89e20bf… | 9 sự kiện | 2026-11-21T06:24:24
+      - principal_hash=42c43f50d930… | 3 sự kiện | 2026-11-21T06:24:33
+  [role của cùng principal thay đổi trong cửa sổ] 1 phát hiện
+      - principal_hash=d4b2f89e20bf… | 31 sự kiện | 2026-11-21T06:24:20 | subject_roles khác nhau: employee, employee,manager
+  [policy đổi version trong cửa sổ] 0 phát hiện
+  [gán/gỡ role qua Admin API (và user đó có hoạt động sau đó)] 2 phát hiện
+      - idp_event=ADMIN_CREATE, admin_target_hash=d4b2f89e20bf… | 1 sự kiện | 2026-11-21T06:24:49 | user bị tác động có 5 sự kiện SAU thao tác (idp_event=2, authz_decision=1, gateway_access=1, policy_decision=1)
+      - idp_event=ADMIN_DELETE, admin_target_hash=d4b2f89e20bf… | 1 sự kiện | 2026-11-21T06:24:50 | user bị tác động có 0 sự kiện SAU thao tác
+
+H5 — Dò BOLA / BFLA — đọc đối tượng của người khác, gọi chức năng không đủ quyền
+  giả thuyết: Người dùng hợp lệ thay ID trong URL để đọc đơn/hồ sơ của người khác (BOLA, OWASP API1:2023): gateway cho qua (đúng route, đúng role) nhưng backend từ chối not_owner / not_found. Nhiều lần trong cửa sổ ngắn = dò ID. Gọi route không đủ role (BFLA, API5:2023) bị PDP chặn role_not_allowed. Gửi trường không được sửa (API3) → forbidden_property / unknown_field.
+  [BOLA: ≥ 3 lần backend từ chối đối tượng cùng principal] 2 phát hiện
+      - principal_hash=d4b2f89e20bf…, profile=p1 | 5 sự kiện | 2026-11-21T06:24:44 | 13 request bị backend từ chối trong cửa sổ (nối qua request_id)
+      - principal_hash=586f64b80abc…, profile=p1 | 3 sự kiện | 2026-11-21T06:24:33 | 13 request bị backend từ chối trong cửa sổ (nối qua request_id)
+  [BOPLA: sửa thuộc tính không được phép] 2 phát hiện
+      - principal_hash=d4b2f89e20bf… | 3 sự kiện | 2026-11-21T06:24:44 | 4 request bị backend từ chối trong cửa sổ (nối qua request_id)
+      - principal_hash=42c43f50d930… | 1 sự kiện | 2026-11-21T06:24:45 | 4 request bị backend từ chối trong cửa sổ (nối qua request_id)
+  [BFLA: gọi chức năng không đủ role] 3 phát hiện
+      - principal_hash=d4b2f89e20bf…, route_template=/orders/{id} | 4 sự kiện | 2026-11-21T06:24:24
+      - principal_hash=d4b2f89e20bf…, route_template=/profile/{id} | 3 sự kiện | 2026-11-21T06:24:33
+      - principal_hash=586f64b80abc…, route_template=/profile/{id} | 2 sự kiện | 2026-11-21T06:24:33
+
+H9 — Telemetry bị sửa / xoá — hash chain, digest, khoảng trống
+  giả thuyết: Kẻ vào được mạng telemetry (OpenSearch không xác thực) sửa hoặc xoá sự kiện để xoá dấu vết, hoặc xoá digest, hoặc làm ngừng digester/Vault để không còn bằng chứng mới. Hash chain (Vector) + digest ký bằng Vault (digester) làm mọi thay đổi trên phần đã ký lộ ra; khoảng trống seq/digest lộ việc xoá.
+  [băm lại + kiểm chữ ký digest (phần đã ký)] 0 phát hiện
+  [thiếu chain_seq trong epoch] 0 phát hiện
+  [digest cũ hoặc mất digest] 0 phát hiện
+  [digester báo bất thường của chuỗi] 0 phát hiện
+  [digester ký lỗi (Vault ngừng / từ chối)] 0 phát hiện
+  [Vector khởi động lại (epoch mới — đối chiếu với khoảng mất sự kiện)] 0 phát hiện
+
+  [PASS] H1 có phát hiện (2)
+  [PASS] H2 có phát hiện (3)
+  [PASS] H3 có phát hiện (3)
+  [PASS] H4 có phát hiện (5)
+  [PASS] H5 có phát hiện (7)
+
+---- Chi tiết H9 trên bản sao đã bị sửa/xoá ----
+H9 — Telemetry bị sửa / xoá — hash chain, digest, khoảng trống
+  giả thuyết: Kẻ vào được mạng telemetry (OpenSearch không xác thực) sửa hoặc xoá sự kiện để xoá dấu vết, hoặc xoá digest, hoặc làm ngừng digester/Vault để không còn bằng chứng mới. Hash chain (Vector) + digest ký bằng Vault (digester) làm mọi thay đổi trên phần đã ký lộ ra; khoảng trống seq/digest lộ việc xoá.
+  [băm lại + kiểm chữ ký digest (phần đã ký)] 2 phát hiện
+      - chain_epoch=20261121T060624Z-1b636c01 | 1 sự kiện | epoch 20261121T060624Z-1b636c01 seq 28 (envoy/gateway_access): event_hash KHÔNG khớp nội dung — sự kiện bị sửa
+      - chain_epoch=20261121T060624Z-1b636c01 | 1 sự kiện | digest 12: thiếu sự kiện seq 29 (digest không khai là khoảng thiếu) — bị xoá
+  [thiếu chain_seq trong epoch] 1 phát hiện
+      - chain_epoch=20261121T060624Z-1b636c01 | 1 sự kiện | seq 1..1635 nhưng chỉ có 1634 sự kiện — thiếu 1 (bị xoá khỏi SIEM?)
+  [digest cũ hoặc mất digest] 0 phát hiện
+  [digester báo bất thường của chuỗi] 0 phát hiện
+  [digester ký lỗi (Vault ngừng / từ chối)] 1 phát hiện
+      - decision_reason=vault_unavailable | 1 sự kiện | 2026-11-21T06:23:52
+  [Vector khởi động lại (epoch mới — đối chiếu với khoảng mất sự kiện)] 1 phát hiện
+      - chain_epoch=20261121T060624Z-1b636c01 | 1 sự kiện | 2026-11-21T06:06:24
+
+Kết quả: 0 FAIL

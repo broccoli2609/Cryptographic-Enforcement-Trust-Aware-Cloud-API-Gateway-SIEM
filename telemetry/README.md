@@ -1,8 +1,9 @@
-# telemetry/ — từ log của service tới SIEM (tuần 8)
+# telemetry/ — từ log của service tới SIEM (tuần 8, tuần 9)
 
 Plane "security telemetry" của lab: mọi thành phần ghi log JSON ra stdout, **Vector** gom lại,
-đổi về một schema chung, giả danh định danh, rồi ghi vào **OpenSearch**. Phần toàn vẹn (hash
-chain, digest ký bằng Vault, `verify-chain`) là việc của tuần 9–10 và sẽ nằm cùng thư mục này.
+đổi về một schema chung, giả danh định danh, rồi ghi vào **OpenSearch**. Tuần 9 thêm phần toàn vẹn:
+**hash chain** (Vector) + **digest ký bằng Vault Transit** (`digester/`) — xem mục 8. `verify-chain`
+(Go) là việc của tuần 10; trước đó `chain_check.py` làm việc kiểm.
 
 ```
  Envoy ─┐                                   Vector (telemetry/vector/vector.yaml)
@@ -21,9 +22,13 @@ chain, digest ký bằng Vault, `verify-chain`) là việc của tuần 9–10 v
 | `schema_check.py` | Công cụ kiểm (Python chuẩn): `self` (schema), `source` (log thô ↔ schema), `siem` (sự kiện trong SIEM ↔ schema), `mapping` (sinh mapping OpenSearch), `sync` (schema ↔ Vector ↔ mapping). |
 | `secret_scan.py` | Scanner SR-10: token, khoá PEM, mã uỷ quyền, bí mật trong `.env`, định danh thô của user. |
 | `vector/vector.yaml` | Đường ống: 5 nguồn → `norm_*` → `seal` → OpenSearch. |
-| `vector/tests.yaml` | 21 unit test của đường ống (`vector test`), gồm các ca chèn token. |
+| `vector/tests.yaml` | 31 unit test của đường ống (`vector test`; tuần 8: 21), gồm các ca chèn token, hash chain, Vault audit, digester, admin event. |
 | `opensearch/index-template.json`, `index-mapping.json` | Mapping `dynamic: strict`, **sinh từ schema** (`make siem-mapping`) — không sửa tay. |
-| `opensearch/init.sh` | Nạp mapping trước khi Vector ghi tài liệu đầu tiên (service `opensearch-init`). |
+| `opensearch/init.sh` | Nạp mapping trước khi Vector ghi tài liệu đầu tiên (service `opensearch-init`); tuần 9 nạp thêm `digest-template.json` (index `topic09-digests`, viết tay). |
+| `digester/` (tuần 9) | Go, chỉ thư viện chuẩn: đọc file chuỗi của Vector, nối H_i, ký digest bằng Vault Transit `siem-digest` (mục 8). |
+| `chain_check.py` (tuần 9) | Bộ kiểm độc lập (Python + openssl): băm lại sự kiện, đối chiếu file chuỗi, tính lại đầu chuỗi, kiểm chữ ký digest bằng khoá đã ghim, mắt xích digest; `selftest` sửa/xoá thử trên bản sao. |
+| `siem_export.py` (tuần 9) | Xuất index ra NDJSON, giữ số nguyên văn (để băm lại đúng byte). |
+| `dashboard.py` (tuần 9) | Dashboard SIEM tĩnh (HTML tự chứa, chỉ số đếm đã gom) — `make siem-dashboard`. |
 
 ## 1. Năm nguồn
 
@@ -145,4 +150,75 @@ docker compose exec -T opensearch curl -s -H 'Content-Type: application/json' \
 | Sửa/xoá tài liệu trong OpenSearch | tuần 9: hash chain + digest ký bằng Vault — *phát hiện* được, không *ngăn* được | index chỉ-ghi-thêm, lưu digest ở nơi khác |
 | Vector dừng thì sự kiện trong lúc dừng bị mất (đọc log "từ bây giờ") | lab một máy | bộ đệm trên đĩa, checkpoint |
 | `authn_method` là giá trị suy ra từ `client_id`, không phải quan sát được | mỗi client của realm chỉ bật một luồng | đối chiếu với `idp_event` / `grant_type` của Keycloak |
-| Sự kiện quản trị của Keycloak (đổi cấu hình realm) chưa vào SIEM | chưa cần cho 6 hunt của tuần 9 | thêm một nhánh trong `norm_keycloak` |
+| ~~Sự kiện quản trị của Keycloak chưa vào SIEM~~ | **đã làm tuần 9 T6**: `idp_admin_event` (mục 8.4) | — |
+| Digest chỉ phủ tới lần ký gần nhất (≤ 5 phút) | sự kiện mới hơn vẫn đối chiếu được với file chuỗi của Vector (ngoài mạng telemetry) | ký thường hơn / ký theo số sự kiện |
+| Vault dev mất khoá khi khởi động lại | lịch sử public key giữ cho digest cũ kiểm được | Vault server mode + storage bền (quyết trước tuần 10 vì `pii-enc`) |
+
+## 8. Toàn vẹn log — hash chain + digest ký bằng Vault (tuần 9)
+
+```
+seal ─► chain_seq (Lua) ─► chain_hash (VRL) ─┬─► OpenSearch topic09-events  (mọi sự kiện có chain_epoch, chain_seq, event_hash)
+        epoch + seq        event_hash =       └─► file /var/lib/vector-chain/<epoch>.jsonl  (volume siem-chain, chỉ Vector ghi)
+                           SHA-256(sự kiện)                     │ (ro)
+                                                                ▼
+                         digester: H_0 = SHA-256("topic09/hash-chain/v1|" ‖ epoch); H_i = SHA-256(H_{i-1} ‖ event_hash_i)
+                         5 phút / SIGUSR1: ký digest {digest_seq, created_at, epoch, first_seq, last_seq, prev_head, head,
+                         gaps, prev_signature} bằng Vault transit/sign/siem-digest → tự xác minh bằng public key đã công bố
+                         → sổ /state/digests.jsonl (fsync) + OpenSearch topic09-digests
+```
+
+### 8.1 Vì sao chuỗi tách làm hai nơi
+
+`H_i` cần nhớ `H_{i-1}`. Trong Vector chỉ transform **Lua** giữ được biến giữa các sự kiện, mà Lua
+không có SHA-256 (tự viết = tự cài thuật toán); **VRL** có SHA-256 nhưng không có trạng thái. Nên:
+Lua chỉ đếm (`chain_epoch` = thời điểm Vector khởi động + 32 bit ngẫu nhiên; `chain_seq` liên tục),
+VRL băm từng sự kiện (`event_hash`, phủ cả `chain_seq` — tráo seq là lệch hash), digester nối chuỗi.
+Digester đọc **file chuỗi của Vector**, không đọc OpenSearch (luật telemetry) — người sửa được OpenSearch
+(mạng telemetry) không sửa được file này (volume chỉ Vector ghi).
+
+`event_hash` băm JSON chính tắc (khoá sắp xếp theo byte, không khoảng trắng) — đúng các byte Vector gửi
+OpenSearch, nên người kiểm tính lại được từ `_source` nếu giữ **nguyên văn** các số (`2.0` không thành `2`):
+`siem_export.py` / `chain_check.py` làm việc đó. Ba trường chuỗi không có trong allow-list của `seal`:
+log nguồn không tự đặt được chúng (`schema_check.py sync` bắt lỗi nếu có).
+
+### 8.2 Digest
+
+Mỗi digest cam kết "epoch E có các sự kiện `first_seq..last_seq` (trừ `gaps`), đầu chuỗi là `head`";
+các digest nối nhau bằng `digest_seq` liên tục + `prev_signature`. Bản ghi lưu kèm `signed_payload`
+(đúng byte đã ký), `public_key`, `key_version` (Vault dev mất khoá khi khởi động lại). Người kiểm **không
+tin public key đi kèm**: chỉ tin khoá `vault-init` đã công bố (`kms-public/siem-digest*.json`, xem
+`kms/README.md`).
+
+Fail-closed (SR-11, FI-4): Vault lỗi / từ chối / chữ ký không khớp public key → `digest_failed`, không ghi
+gì, trạng thái không tiến; lần ký sau phủ khoảng lớn hơn.
+
+Bất thường digester báo (`event_type=chain_anomaly`, `decision_reason`): `seq_gap` (seq thiếu quá 30 s →
+bỏ qua, ghi vào `gaps` của digest), `late_record`, `duplicate_seq`, `bad_record`, `file_truncated`,
+`head_mismatch` (đọc lại file sau khi khởi động ra đầu chuỗi khác đầu chuỗi đã ký = file bị sửa).
+
+### 8.3 Nguồn mới
+
+| Nguồn | `event_type` | Ghi chú |
+|---|---|---|
+| `vault` (file audit, không phải stdout) | `kms_audit` | `kms_path`, `kms_operation`, `kms_client`, `kms_policies`, `kms_calls`, `kms_key_version` — `kms/README.md` |
+| `digester` | `digest`, `chain_anomaly` | `digest_seq`, `digest_epoch`, `digest_first_seq`, `digest_last_seq` |
+| `vector` | `chain_start` | sự kiện seq 1 của mỗi epoch: phân biệt "Vector dừng" với "log bị xoá" |
+
+### 8.4 Sự kiện quản trị Keycloak (tuần 9 T6, SR-12)
+
+`norm_keycloak` nhận cả dòng `operationType=…`: `event_type=idp_admin_event`, `idp_event=ADMIN_<OP>`,
+`admin_resource_type`, `admin_resource_path` (UUID → `{id}`). UUID của user bị tác động đi qua khoá thô
+`admin_target` và bị `seal` băm thành `admin_target_hash` = HMAC-SHA256(khoá, `"principal:"` ‖ UUID) —
+**cố ý** dùng cùng tiền tố với `principal_hash`, để H4 nối "user X được gán role" với các request sau
+đó của X mà SIEM không giữ UUID thật. Không lấy IP, `clientId` nội bộ, representation.
+
+### 8.5 Kiểm
+
+```bash
+make vector-validate   # 31 unit test (chain, Vault, digester, admin event) + schema/allow-list/mapping
+make kms-test          # Vault: khoá, policy tách biệt, audit
+make chain-test        # đầu-cuối + kiểm độc lập + 6 kiểu sửa/xoá + FI-4 (Vault treo)
+make admin-event-test  # đổi role một user → admin event trong SIEM
+make test              # gồm unit test của digester (63)
+make digest-now        # ký digest ngay
+```
